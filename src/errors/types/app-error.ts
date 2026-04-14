@@ -42,7 +42,7 @@ export class AppError extends HttpException {
   readonly details?: ApiErrorFieldDetail[];
 
   /** Original error that caused this error */
-  readonly cause?: Error;
+  declare readonly cause: unknown;
 
   /**
    * Whether this is an operational (expected) error.
@@ -137,7 +137,7 @@ export class AppError extends HttpException {
       isOperational: this.isOperational,
       details: this.details,
       stack: this.stack,
-      cause: this.cause
+      cause: this.cause instanceof Error
         ? {
             message: this.cause.message,
             stack: this.cause.stack,

@@ -210,7 +210,7 @@ export class ErrorFactory {
    * @returns An AppError with VAL0001 and field-level details
    */
   static fromZodErrors(error: ZodError): AppError {
-    const details: ApiErrorFieldDetail[] = error.errors.map((issue) => ({
+    const details: ApiErrorFieldDetail[] = error.issues.map((issue) => ({
       field: issue.path.join('.') || '_root',
       message: issue.message,
     }));

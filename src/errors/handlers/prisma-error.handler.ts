@@ -1,4 +1,10 @@
-import { Prisma } from '@prisma/client';
+import {
+  PrismaClientKnownRequestError,
+  PrismaClientValidationError,
+  PrismaClientInitializationError,
+  PrismaClientRustPanicError,
+  PrismaClientUnknownRequestError,
+} from '@prisma/client/runtime/client';
 import { AppError } from '../types/app-error';
 import { ErrorCodeKey } from '@common/constants/error-codes';
 
@@ -71,11 +77,11 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
  */
 export function isPrismaError(error: unknown): boolean {
   return (
-    error instanceof Prisma.PrismaClientKnownRequestError ||
-    error instanceof Prisma.PrismaClientValidationError ||
-    error instanceof Prisma.PrismaClientInitializationError ||
-    error instanceof Prisma.PrismaClientRustPanicError ||
-    error instanceof Prisma.PrismaClientUnknownRequestError
+    error instanceof PrismaClientKnownRequestError ||
+    error instanceof PrismaClientValidationError ||
+    error instanceof PrismaClientInitializationError ||
+    error instanceof PrismaClientRustPanicError ||
+    error instanceof PrismaClientUnknownRequestError
   );
 }
 
@@ -90,7 +96,7 @@ export function isPrismaError(error: unknown): boolean {
  */
 export function handlePrismaError(error: unknown): AppError | undefined {
   // PrismaClientKnownRequestError — maps to specific domain errors
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+  if (error instanceof PrismaClientKnownRequestError) {
     const entry = PRISMA_ERROR_MAP[error.code];
     if (entry) {
       return AppError.fromCode(entry.key, {
@@ -107,7 +113,7 @@ export function handlePrismaError(error: unknown): AppError | undefined {
   }
 
   // PrismaClientValidationError — invalid query shape
-  if (error instanceof Prisma.PrismaClientValidationError) {
+  if (error instanceof PrismaClientValidationError) {
     return AppError.fromCode('VAL0001', {
       message: 'Invalid database query',
       cause: error,
@@ -115,7 +121,7 @@ export function handlePrismaError(error: unknown): AppError | undefined {
   }
 
   // PrismaClientInitializationError — cannot connect / initialise
-  if (error instanceof Prisma.PrismaClientInitializationError) {
+  if (error instanceof PrismaClientInitializationError) {
     return AppError.fromCode('DAT0006', {
       message: 'Database initialisation failed',
       cause: error,
@@ -124,7 +130,7 @@ export function handlePrismaError(error: unknown): AppError | undefined {
   }
 
   // PrismaClientRustPanicError — unrecoverable engine crash
-  if (error instanceof Prisma.PrismaClientRustPanicError) {
+  if (error instanceof PrismaClientRustPanicError) {
     return AppError.fromCode('SRV0001', {
       message: 'Database engine crash',
       cause: error,
@@ -133,7 +139,7 @@ export function handlePrismaError(error: unknown): AppError | undefined {
   }
 
   // PrismaClientUnknownRequestError — unknown engine-level error
-  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+  if (error instanceof PrismaClientUnknownRequestError) {
     return AppError.fromCode('DAT0007', {
       message: 'Unknown database error',
       cause: error,
