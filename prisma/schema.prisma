@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum TodoStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+enum TodoPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  passwordHash     String
+  firstName        String?
+  lastName         String?
+  role             UserRole   @default(USER)
+  status           UserStatus @default(PENDING_VERIFICATION)
+  lockedUntil      DateTime?
+  failedLoginCount Int        @default(0)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  deletedAt        DateTime?
+
+  refreshTokens RefreshToken[]
+  apiKeys       ApiKey[]
+  todoLists     TodoList[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model ApiKey {
+  id         String       @id @default(uuid())
+  name       String
+  keyHash    String       @unique
+  prefix     String
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status     ApiKeyStatus @default(ACTIVE)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+model TodoList {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  items TodoItem[]
+
+  @@index([userId])
+  @@map("todo_lists")
+}
+
+model TodoItem {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  status      TodoStatus   @default(PENDING)
+  priority    TodoPriority @default(MEDIUM)
+  dueDate     DateTime?
+  completedAt DateTime?
+  todoListId  String
+  todoList    TodoList     @relation(fields: [todoListId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  tags TodoItemTag[]
+
+  @@index([todoListId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@map("todo_items")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String?
+  createdAt DateTime @default(now())
+
+  items TodoItemTag[]
+
+  @@map("tags")
+}
+
+model TodoItemTag {
+  todoItemId String
+  tagId      String
+  todoItem   TodoItem @relation(fields: [todoItemId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@id([todoItemId, tagId])
+  @@map("todo_item_tags")
+}
