@@ -63,7 +63,7 @@ src/
 ## Coding Conventions
 
 - **No hardcoded strings** — use constants from `src/common/constants/` or define a `*.constants.ts` in the module.
-- **JSDoc on all public methods** — document params, return type, and thrown errors.
+- **JSDoc on all public methods** — document params, return type, and thrown errors. Include `@example` blocks on non-trivial methods.
 - **File names:** `kebab-case.type.ts` (e.g., `todo-list.service.ts`, `create-todo-list.dto.ts`).
 - **Classes:** `PascalCase`.
 - **Functions/methods:** `camelCase`.
@@ -72,6 +72,104 @@ src/
 - **Imports:** Use path aliases (`@common/`, `@config/`, `@database/`, `@logger/`, `@telemetry/`, `@modules/`).
 - **DTOs:** Use Zod schemas inside the DTO file and pass through `ZodValidationPipe`.
 - **Never expose `passwordHash`** — use `SafeUser` type from `UsersService`.
+
+---
+
+## Error System
+
+Errors are represented as `ErrorException` instances (extends `HttpException`).
+
+**Creating errors:**
+```typescript
+// Preferred — semantic factory methods
+throw ErrorFactory.notFound('User', userId);
+throw ErrorFactory.validation('Bad input', [{ field: 'email', message: '...' }]);
+
+// Direct — from dot-notation code key
+throw ErrorException.fromCode('DAT.NOT_FOUND', { message: 'User not found' });
+
+// Zod parse result
+if (!result.success) throw ErrorFactory.fromZodErrors(result.error);
+```
+
+**Catching errors:**
+```typescript
+if (ErrorException.isErrorException(err)) {
+  return err.toResponse(); // Safe, masks non-operational messages
+}
+const safe = ErrorException.wrap(unknownErr); // Always returns an ErrorException
+```
+
+**Error code format:** `PREFIX` (3 uppercase letters) + 4-digit zero-padded number.
+Prefix registry: `GEN` (general), `VAL` (validation), `AUT` (authentication), `AUZ` (authorization), `DAT` (database/data), `SRV` (server/infrastructure).
+
+**Non-operational errors** (`isOperational: false`) have messages masked in API responses to prevent leaking internal details. Always pass `isOperational: false` for unexpected infrastructure failures.
+
+---
+
+## API Versioning
+
+Routes use **NestJS URI versioning**: `/api/v{version}/path`.
+
+- `main.ts` sets `app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' })`.
+- Every controller declares its version: `@Controller({ path: 'health', version: '1' })`.
+- To add a v2 route, create a new controller with `version: '2'` — v1 continues to work.
+- Use `VERSION_NEUTRAL` (from `@nestjs/common`) for routes that should not be versioned.
+
+**Current version:** `v1` (all controllers). New modules must set `version: '1'` (or a higher version).
+
+---
+
+## Controller Decorators
+
+Use composite decorators to reduce boilerplate:
+
+| Decorator | File | Purpose |
+|-----------|------|---------|
+| `@ApiAuth()` | `src/common/decorators/api-auth.decorator.ts` | Bearer auth + 401 response doc |
+| `@ApiEndpoint(opts)` | `src/common/decorators/api-endpoint.decorator.ts` | `@ApiOperation` + `@ApiResponse` + `@HttpCode` combined |
+| `@Public()` | `src/common/decorators/public.decorator.ts` | Skip JWT guard on a route |
+| `@CurrentUser(field?)` | `src/common/decorators/current-user.decorator.ts` | Extract JWT user or a specific field |
+| `@Roles(...roles)` | `src/common/decorators/roles.decorator.ts` | Role-based access metadata |
+
+**Example:**
+```typescript
+@Post()
+@ApiEndpoint({
+  summary: 'Create a todo list',
+  successStatus: HttpStatus.CREATED,
+  successDescription: 'Created successfully',
+  errorResponses: [HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED],
+})
+async create(@Body() dto: CreateTodoListDto) {}
+```
+
+---
+
+## Logger Contract
+
+`AppLogger` provides three distinct methods with fixed semantics:
+
+| Method | Level | Use case |
+|--------|-------|---------|
+| `logEvent(name, opts?)` | Always INFO | Named structured events (lifecycle, domain events) |
+| `logError(name, error, opts?)` | Always ERROR | Caught errors with OTel span recording |
+| `log(message, opts?)` | Configurable (default INFO) | Escape hatch for non-INFO/non-ERROR levels |
+
+**Do not pass `level:` to `logEvent()` or `logError()`.** If you need WARN or FATAL, use `log()`:
+```typescript
+// Correct
+logger.logEvent('user.created', { attributes: { userId } });
+logger.logError('db.query.failed', error, { attributes: { query } });
+logger.log('process exiting', { level: LogLevel.FATAL, attributes: { signal } });
+
+// Wrong — level is ignored on logEvent/logError
+logger.logEvent('something.warn', { level: LogLevel.WARN }); // use log() instead
+```
+
+**CLS (Continuation Local Storage):** Request context (requestId, userId) is propagated via `ClsModule`. Services that need request-scoped context should inject `ClsService`.
+
+---
 
 ---
 
