@@ -9,6 +9,10 @@ import { HealthModule } from '@modules/health/health.module';
 import { TelemetryModule } from '@telemetry/telemetry.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { UsersModule } from '@modules/users/users.module';
+import { TodoListsModule } from '@modules/todo-lists/todo-lists.module';
+import { TodoItemsModule } from '@modules/todo-items/todo-items.module';
+import { TagsModule } from '@modules/tags/tags.module';
+import { QueueModule } from './queue/queue.module';
 import { RequestIdMiddleware } from '@common/middleware/request-id.middleware';
 import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.middleware';
 
@@ -30,6 +34,10 @@ import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.m
     HealthModule,
     AuthModule,
     UsersModule,
+    QueueModule,
+    TodoListsModule,
+    TodoItemsModule,
+    TagsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
