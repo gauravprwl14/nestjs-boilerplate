@@ -10,10 +10,25 @@ import { ErrorFieldDetail } from '../interfaces/error.interfaces';
  * This ensures consistent error codes, messages, and HTTP status codes across the
  * entire application.
  *
+ * Prefer ErrorFactory methods over calling ErrorException.fromCode() directly —
+ * they provide semantic, type-safe shortcuts for every common error scenario.
+ *
  * @example
  * ```typescript
+ * // Throw a 404 for a specific resource
  * throw ErrorFactory.notFound('User', userId);
- * throw ErrorFactory.validation('Email is invalid', [{ field: 'email', message: 'Must be a valid email' }]);
+ *
+ * // Throw a validation error with field-level details
+ * throw ErrorFactory.validation('Email is invalid', [
+ *   { field: 'email', message: 'Must be a valid email' },
+ * ]);
+ *
+ * // Throw from a Zod parse result
+ * const result = schema.safeParse(body);
+ * if (!result.success) throw ErrorFactory.fromZodErrors(result.error);
+ *
+ * // Wrap an unexpected database error
+ * throw ErrorFactory.database('Failed to fetch records', cause);
  * ```
  */
 export class ErrorFactory {

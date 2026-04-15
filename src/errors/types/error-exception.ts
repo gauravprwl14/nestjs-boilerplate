@@ -22,13 +22,31 @@ export interface ErrorExceptionOptions {
  * Application-level error class that extends NestJS HttpException.
  *
  * All errors in the system should ultimately be represented as ErrorException instances.
- * Use ErrorFactory for convenient factory methods or ErrorException.fromCode() to create
- * from the ERROR_CODES registry.
+ * Use ErrorFactory for convenient factory methods, or ErrorException.fromCode() to
+ * construct directly from the ERROR_CODES registry using a dot-notation key.
+ *
+ * The GlobalExceptionsFilter catches all ErrorException instances and serialises them
+ * to a standardised ApiErrorResponse shape. Non-operational errors have their messages
+ * masked to prevent leaking internal details to clients.
+ *
+ * Error code format: PREFIX + 4-digit zero-padded number (e.g. VAL0001, DAT0003).
+ * Prefix registry: GEN, VAL, AUT, AUZ, DAT, SRV.
  *
  * @example
  * ```typescript
+ * // Create from dot-notation error code key
  * throw ErrorException.fromCode('DAT.NOT_FOUND', { message: 'User not found' });
+ *
+ * // Use the factory (preferred for common cases)
  * throw ErrorFactory.notFound('User', userId);
+ *
+ * // Wrap an unknown caught value
+ * const err = ErrorException.wrap(unknownCaughtValue);
+ *
+ * // Type guard in filters/middleware
+ * if (ErrorException.isErrorException(exception)) {
+ *   return exception.toResponse();
+ * }
  * ```
  */
 export class ErrorException extends HttpException {
