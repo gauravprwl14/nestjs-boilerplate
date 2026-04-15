@@ -1,0 +1,110 @@
+import { Injectable } from '@nestjs/common';
+import * as crypto from 'crypto';
+import { ApiKey, ApiKeyStatus } from '@prisma/client';
+import { PrismaService } from '@database/prisma.service';
+import { API_KEY_PREFIX_LENGTH } from '@common/constants';
+import { ErrorFactory } from '@errors/types/error-factory';
+import { CreateApiKeyDto } from './dto/create-api-key.dto';
+
+/** Publicly visible fields of an API key (no raw key) */
+export type ApiKeyListItem = Pick<
+  ApiKey,
+  'id' | 'name' | 'prefix' | 'status' | 'lastUsedAt' | 'expiresAt' | 'createdAt'
+>;
+
+/** Result of creating an API key — includes the full key (shown once only) */
+export interface CreateApiKeyResult {
+  id: string;
+  name: string;
+  /** Full API key value — display once, not stored */
+  key: string;
+  prefix: string;
+  createdAt: Date;
+}
+
+/**
+ * Service for managing API keys.
+ * Handles creation (with full key shown once), listing, and revocation.
+ */
+@Injectable()
+export class ApiKeysService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Creates a new API key for a user.
+   * The raw key is returned once in the response and is never stored.
+   *
+   * @param userId - The owning user's UUID
+   * @param dto - Key creation parameters
+   * @returns Key metadata and the raw key value (one-time display)
+   */
+  async create(userId: string, dto: CreateApiKeyDto): Promise<CreateApiKeyResult> {
+    const rawKey = crypto.randomBytes(32).toString('hex');
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+    const prefix = rawKey.slice(0, API_KEY_PREFIX_LENGTH);
+
+    const apiKey = await this.prisma.apiKey.create({
+      data: {
+        name: dto.name,
+        keyHash,
+        prefix,
+        userId,
+        status: ApiKeyStatus.ACTIVE,
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+      },
+    });
+
+    return {
+      id: apiKey.id,
+      name: apiKey.name,
+      key: rawKey,
+      prefix: apiKey.prefix,
+      createdAt: apiKey.createdAt,
+    };
+  }
+
+  /**
+   * Lists all API keys for a user (without the raw key).
+   *
+   * @param userId - The owning user's UUID
+   * @returns Array of API key metadata
+   */
+  async findAll(userId: string): Promise<ApiKeyListItem[]> {
+    const keys = await this.prisma.apiKey.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        prefix: true,
+        status: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return keys;
+  }
+
+  /**
+   * Revokes an API key owned by the specified user.
+   *
+   * @param userId - The owning user's UUID
+   * @param keyId - The API key's UUID
+   */
+  async revoke(userId: string, keyId: string): Promise<void> {
+    const apiKey = await this.prisma.apiKey.findFirst({
+      where: { id: keyId, userId },
+    });
+
+    if (!apiKey) {
+      throw ErrorFactory.notFound('ApiKey', keyId);
+    }
+
+    await this.prisma.apiKey.update({
+      where: { id: keyId },
+      data: { status: ApiKeyStatus.REVOKED },
+    });
+  }
+}
