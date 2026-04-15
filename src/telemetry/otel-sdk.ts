@@ -86,6 +86,12 @@ export function initOtelSdk(config: OtelConfig): void {
         '@opentelemetry/instrumentation-fs': {
           enabled: false,
         },
+        // Disable Express instrumentation — it wraps Express error handlers
+        // and causes 404 NotFoundException to bypass NestJS exception filters.
+        // HTTP instrumentation provides sufficient request/response tracing.
+        '@opentelemetry/instrumentation-express': {
+          enabled: false,
+        },
       }),
     ],
   });

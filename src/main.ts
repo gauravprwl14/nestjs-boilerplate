@@ -9,7 +9,6 @@ import { AppModule } from './app.module';
 import { AppConfigService } from '@config/config.service';
 import { AppLogger } from '@logger/logger.service';
 import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
-import { PrismaExceptionFilter } from '@common/filters/prisma-exception.filter';
 import { TransformInterceptor } from '@common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from '@common/interceptors/logging.interceptor';
 import { TimeoutInterceptor } from '@common/interceptors/timeout.interceptor';
@@ -50,12 +49,15 @@ async function bootstrap(): Promise<void> {
 
   setupSecurity(app, config);
   setupGlobalPipes(app);
-  setupGlobalFilters(app, logger);
+  setupGlobalFilters(app);
   setupGlobalInterceptors(app, logger);
   setupSwagger(app, config, logger);
   setupProcessHandlers(app, logger, config.shutdown.timeoutMs);
 
   await startServer(app, config, logger);
+
+  // Must be registered AFTER listen() so it's after all NestJS routes
+  setupFallbackErrorHandler(app);
 }
 
 function setupSecurity(app: INestApplication, config: AppConfigService): void {
@@ -68,6 +70,19 @@ function setupSecurity(app: INestApplication, config: AppConfigService): void {
   });
 }
 
+/**
+ * Register global exception filters from the DI container.
+ * Using useGlobalFilters with DI-resolved instances ensures both:
+ * - Router-level exceptions (404s from Express) are caught
+ * - Filters have access to injected dependencies (AppLogger, etc.)
+ */
+function setupGlobalFilters(app: INestApplication): void {
+  // Resolve from DI so it has injected AppLogger, then register globally
+  // so it catches router-level exceptions (404s from Express layer).
+  const allExceptionsFilter = app.get(AllExceptionsFilter);
+  app.useGlobalFilters(allExceptionsFilter);
+}
+
 function setupGlobalPipes(app: INestApplication): void {
   app.useGlobalPipes(
     new ValidationPipe({
@@ -78,15 +93,6 @@ function setupGlobalPipes(app: INestApplication): void {
         enableImplicitConversion: true,
       },
     }),
-  );
-}
-
-function setupGlobalFilters(app: INestApplication, logger: AppLogger): void {
-  // Order matters: last registered runs first
-  // AllExceptionsFilter catches everything, PrismaExceptionFilter converts Prisma errors first
-  app.useGlobalFilters(
-    new AllExceptionsFilter(logger),
-    new PrismaExceptionFilter(),
   );
 }
 
@@ -147,6 +153,31 @@ async function startServer(app: INestApplication, config: AppConfigService, logg
       host,
       environment: config.app.nodeEnv,
     },
+  });
+}
+
+/**
+ * Registers a fallback Express error handler that catches exceptions
+ * escaping NestJS's filter chain (e.g., 404s from the router layer
+ * intercepted by OTel Express instrumentation before NestJS filters run).
+ *
+ * Must be called AFTER app.listen() so it's registered after all NestJS routes.
+ */
+function setupFallbackErrorHandler(app: INestApplication): void {
+  const expressApp = app.getHttpAdapter().getInstance();
+
+  // Express error handler (4 args signature) — catches thrown exceptions
+  expressApp.use((err: any, req: any, res: any, _next: any) => {
+    if (res.headersSent) return;
+    const statusCode = err.status || err.statusCode || 500;
+    const message = err.response?.message || err.message || 'Internal server error';
+    const code = statusCode === 404 ? 'DAT0001' : 'SRV0001';
+    res.status(statusCode).json({
+      success: false,
+      errors: [{ code, message: typeof message === 'string' ? message : String(message) }],
+      requestId: req.id ?? '',
+      timestamp: new Date().toISOString(),
+    });
   });
 }
 

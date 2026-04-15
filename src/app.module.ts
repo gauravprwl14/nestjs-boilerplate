@@ -13,6 +13,7 @@ import { TodoListsModule } from '@modules/todo-lists/todo-lists.module';
 import { TodoItemsModule } from '@modules/todo-items/todo-items.module';
 import { TagsModule } from '@modules/tags/tags.module';
 import { QueueModule } from './queue/queue.module';
+import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
 import { RequestIdMiddleware } from '@common/middleware/request-id.middleware';
 import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.middleware';
 import { AppClsModule } from '@common/cls/cls.module';
@@ -43,6 +44,9 @@ import { AppClsModule } from '@common/cls/cls.module';
     TagsModule,
   ],
   providers: [
+    // AllExceptionsFilter registered as a provider for DI resolution in main.ts.
+    // The actual global registration happens via useGlobalFilters() in main.ts.
+    AllExceptionsFilter,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

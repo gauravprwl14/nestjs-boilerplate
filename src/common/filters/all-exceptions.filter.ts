@@ -11,6 +11,7 @@ import { trace } from '@opentelemetry/api';
 import { AppLogger } from '@logger/logger.service';
 import { LogLevel } from '@logger/logger.interfaces';
 import { ErrorException } from '@errors/types/error-exception';
+import { handlePrismaError, isPrismaError } from '@errors/handlers/prisma-error.handler';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 
 /**
@@ -109,6 +110,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private normalise(exception: unknown): ErrorException {
     if (ErrorException.isErrorException(exception)) {
       return exception;
+    }
+
+    // Prisma errors — convert via the shared handler
+    if (isPrismaError(exception)) {
+      const prismaError = handlePrismaError(exception);
+      if (prismaError) return prismaError;
     }
 
     if (exception instanceof HttpException) {
