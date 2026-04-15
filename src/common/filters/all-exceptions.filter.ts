@@ -10,21 +10,22 @@ import { Request, Response } from 'express';
 import { trace } from '@opentelemetry/api';
 import { AppLogger } from '@logger/logger.service';
 import { LogLevel } from '@logger/logger.interfaces';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 
 /**
- * Maps HTTP status codes to application error codes.
+ * Maps HTTP status codes to domain error code keys for generic HttpExceptions.
+ * These are used when a plain NestJS HttpException is thrown (not an ErrorException).
  */
-const STATUS_TO_ERROR_CODE: Record<number, string> = {
-  [HttpStatus.BAD_REQUEST]: 'VAL0001',
-  [HttpStatus.UNAUTHORIZED]: 'AUT0001',
-  [HttpStatus.FORBIDDEN]: 'AUZ0001',
-  [HttpStatus.NOT_FOUND]: 'DAT0001',
-  [HttpStatus.CONFLICT]: 'DAT0002',
-  [HttpStatus.REQUEST_TIMEOUT]: 'GEN0002',
-  [HttpStatus.TOO_MANY_REQUESTS]: 'GEN0001',
-  [HttpStatus.SERVICE_UNAVAILABLE]: 'GEN0003',
+const STATUS_TO_ERROR_KEY: Record<number, Parameters<typeof ErrorException.fromCode>[0]> = {
+  [HttpStatus.BAD_REQUEST]: 'VAL.INVALID_INPUT',
+  [HttpStatus.UNAUTHORIZED]: 'AUT.UNAUTHENTICATED',
+  [HttpStatus.FORBIDDEN]: 'AUZ.FORBIDDEN',
+  [HttpStatus.NOT_FOUND]: 'DAT.NOT_FOUND',
+  [HttpStatus.CONFLICT]: 'DAT.CONFLICT',
+  [HttpStatus.REQUEST_TIMEOUT]: 'GEN.REQUEST_TIMEOUT',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'GEN.RATE_LIMITED',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'GEN.SERVICE_UNAVAILABLE',
 };
 
 /**
@@ -32,9 +33,20 @@ const STATUS_TO_ERROR_CODE: Record<number, string> = {
  * them to a standardised ApiErrorResponse shape.
  *
  * Handles three categories:
- * 1. AppError — already normalised, use as-is
- * 2. HttpException — map HTTP status to error code
- * 3. Unknown — wrap with AppError.wrap() as a generic internal error
+ * 1. ErrorException — already normalised, use as-is
+ * 2. HttpException — map HTTP status to error key
+ * 3. Unknown — wrap with ErrorException.wrap() as a generic internal error
+ *
+ * Response shape:
+ * ```json
+ * {
+ *   "success": false,
+ *   "errors": [{ "code": "VAL0001", "message": "..." }],
+ *   "requestId": "...",
+ *   "traceId": "...",
+ *   "timestamp": "..."
+ * }
+ * ```
  */
 @Catch()
 @Injectable()
@@ -50,72 +62,63 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Extract request/trace IDs for correlation
     const requestId = (request as Request & { id?: string }).id ?? '';
-    const traceId =
-      trace.getActiveSpan()?.spanContext()?.traceId ?? '';
+    const traceId = trace.getActiveSpan()?.spanContext()?.traceId ?? '';
 
-    // Normalise the exception to an AppError
-    const appError = this.normalise(exception);
+    // Normalise the exception to an ErrorException
+    const errorException = this.normalise(exception);
 
-    // Log at appropriate level
-    const is5xx = appError.statusCode >= 500;
-    if (is5xx) {
-      this.logger.logError('http.request.failed', appError, {
-        level: LogLevel.ERROR,
-        attributes: {
-          requestId,
-          traceId,
-          statusCode: appError.statusCode,
-          method: request.method,
-          url: request.url,
-        },
-      });
-    } else {
-      this.logger.logError('http.request.failed', appError, {
-        level: LogLevel.WARN,
-        attributes: {
-          requestId,
-          traceId,
-          statusCode: appError.statusCode,
-          method: request.method,
-          url: request.url,
-        },
-      });
-    }
+    // Log at appropriate level based on HTTP status
+    const is5xx = errorException.statusCode >= 500;
+    this.logger.logError('http.request.failed', errorException, {
+      level: is5xx ? LogLevel.ERROR : LogLevel.WARN,
+      attributes: {
+        requestId,
+        traceId,
+        statusCode: errorException.statusCode,
+        method: request.method,
+        url: request.url,
+      },
+    });
 
     const body: ApiErrorResponse = {
       success: false,
-      error: appError.toResponse(requestId, traceId),
+      errors: [errorException.toResponse()],
+      requestId: requestId || undefined,
+      traceId: traceId || undefined,
       timestamp: new Date().toISOString(),
     };
 
-    response.status(appError.statusCode).json(body);
+    response.status(errorException.statusCode).json(body);
   }
 
   /**
-   * Converts any thrown value into an AppError.
+   * Converts any thrown value into an ErrorException.
+   *
+   * @param exception - The caught exception
+   * @returns A normalised ErrorException
    */
-  private normalise(exception: unknown): AppError {
-    if (AppError.isAppError(exception)) {
+  private normalise(exception: unknown): ErrorException {
+    if (ErrorException.isErrorException(exception)) {
       return exception;
     }
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      const codeKey = STATUS_TO_ERROR_CODE[status] ?? 'SRV0001';
-      const response = exception.getResponse();
+      const errorKey = STATUS_TO_ERROR_KEY[status] ?? 'SRV.INTERNAL_ERROR';
+      const httpResponse = exception.getResponse();
       const message =
-        typeof response === 'string'
-          ? response
-          : (response as Record<string, unknown>)['message']
-            ? String((response as Record<string, unknown>)['message'])
+        typeof httpResponse === 'string'
+          ? httpResponse
+          : (httpResponse as Record<string, unknown>)['message']
+            ? String((httpResponse as Record<string, unknown>)['message'])
             : exception.message;
 
-      return AppError.fromCode(codeKey as Parameters<typeof AppError.fromCode>[0], {
+      return ErrorException.fromCode(errorKey, {
         message,
         cause: exception,
       });
     }
 
-    return AppError.wrap(exception);
+    return ErrorException.wrap(exception);
   }
 }
