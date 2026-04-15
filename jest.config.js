@@ -2,7 +2,25 @@ module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
   testRegex: '.*\\.spec\\.ts$',
-  transform: { '^.+\\.(t|j)s$': 'ts-jest' },
+  transform: {
+    '^.+\\.(t|j)s$': ['ts-jest', {
+      tsconfig: {
+        types: ['jest', 'node'],
+        paths: {
+          '@/*': ['src/*'],
+          '@config/*': ['src/config/*'],
+          '@common/*': ['src/common/*'],
+          '@modules/*': ['src/modules/*'],
+          '@errors/*': ['src/errors/*'],
+          '@database/*': ['src/database/*'],
+          '@logger/*': ['src/logger/*'],
+          '@telemetry/*': ['src/telemetry/*'],
+        },
+        baseUrl: '.',
+      },
+    }],
+  },
+  transformIgnorePatterns: ['node_modules/(?!(@faker-js/faker|uuid)/)'],
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   coverageDirectory: './coverage',
   testEnvironment: 'node',
@@ -18,7 +36,7 @@ module.exports = {
     '^@logger/(.*)$': '<rootDir>/src/logger/$1',
     '^@telemetry/(.*)$': '<rootDir>/src/telemetry/$1',
   },
-  coverageThresholds: {
+  coverageThreshold: {
     global: { lines: 70, statements: 70, branches: 35, functions: 60 },
   },
   coveragePathIgnorePatterns: [
