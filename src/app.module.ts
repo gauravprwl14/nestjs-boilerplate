@@ -15,9 +15,12 @@ import { TagsModule } from '@modules/tags/tags.module';
 import { QueueModule } from './queue/queue.module';
 import { RequestIdMiddleware } from '@common/middleware/request-id.middleware';
 import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.middleware';
+import { AppClsModule } from '@common/cls/cls.module';
 
 @Module({
   imports: [
+    // CLS must be imported before other modules that use it
+    AppClsModule,
     // Core
     AppConfigModule,
     AppLoggerModule,
