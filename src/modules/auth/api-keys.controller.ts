@@ -11,7 +11,7 @@ import { ApiAuth } from '@common/decorators/api-auth.decorator';
  */
 @ApiTags('Authentication')
 @ApiAuth()
-@Controller('auth/api-keys')
+@Controller({ path: 'auth/api-keys', version: '1' })
 export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 

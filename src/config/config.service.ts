@@ -122,14 +122,6 @@ export class AppConfigService {
 
   // ─── Convenience getters ──────────────────────────────────────────────────────
 
-  /**
-   * Full API path prefix, e.g. `api/v1`.
-   */
-  get apiPath(): string {
-    const { apiPrefix, apiVersion } = this.app;
-    return `${apiPrefix}/${apiVersion}`;
-  }
-
   /** Returns true when running in development mode. */
   get isDevelopment(): boolean {
     return this.app.nodeEnv === 'development';

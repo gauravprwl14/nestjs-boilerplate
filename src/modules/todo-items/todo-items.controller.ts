@@ -25,7 +25,7 @@ import { PaginatedResult } from '@common/interfaces';
  */
 @ApiTags('Todo Items')
 @ApiAuth()
-@Controller()
+@Controller({ version: '1' })
 export class TodoItemsController {
   constructor(private readonly todoItemsService: TodoItemsService) {}
 

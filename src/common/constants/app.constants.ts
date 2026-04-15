@@ -1,8 +1,11 @@
 /** Default API route prefix */
 export const DEFAULT_API_PREFIX = 'api';
 
-/** Default API version */
-export const DEFAULT_API_VERSION = 'v1';
+/**
+ * Default API version number (no 'v' prefix — NestJS URI versioning adds that).
+ * Routes are accessed as /api/v1/...
+ */
+export const DEFAULT_API_VERSION = '1';
 
 /** Default HTTP port */
 export const DEFAULT_APP_PORT = 3000;

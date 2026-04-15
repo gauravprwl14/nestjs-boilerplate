@@ -20,7 +20,7 @@ import { ApiAuth } from '@common/decorators/api-auth.decorator';
  */
 @ApiTags('Tags')
 @ApiAuth()
-@Controller()
+@Controller({ version: '1' })
 export class TagsController {
   constructor(private readonly tagsService: TagsService) {}
 

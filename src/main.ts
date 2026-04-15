@@ -2,7 +2,7 @@
 // auto-instrumentation patches are applied before modules are loaded.
 import { initOtelSdk } from '@telemetry/otel-sdk';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, INestApplication } from '@nestjs/common';
+import { ValidationPipe, INestApplication, VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -40,7 +40,13 @@ async function bootstrap(): Promise<void> {
   app.useLogger(logger);
   logger.setContext('Bootstrap');
 
-  app.setGlobalPrefix(config.apiPath);
+  // Global prefix is just 'api' — no version here.
+  // URI versioning (e.g. /api/v1/...) is handled by @Controller({ version: '1' }) decorators.
+  app.setGlobalPrefix(config.app.apiPrefix);
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: config.app.apiVersion,
+  });
 
   setupSecurity(app, config);
   setupGlobalPipes(app);
@@ -102,12 +108,12 @@ function setupSwagger(app: INestApplication, config: AppConfigService, logger: A
       .setVersion(SWAGGER_VERSION)
       .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'jwt')
       .addApiKey({ type: 'apiKey', in: 'header', name: API_KEY_HEADER }, 'api-key')
-      .addTag('Health', 'Health check endpoints')
-      .addTag('Authentication', 'User authentication endpoints')
-      .addTag('Users', 'User management endpoints')
-      .addTag('Todo Lists', 'Todo list management endpoints')
-      .addTag('Todo Items', 'Todo item management endpoints')
-      .addTag('Tags', 'Tag management endpoints')
+      .addTag('Health', 'Health check endpoints. Error codes: GEN0003')
+      .addTag('Authentication', 'User authentication and API key management. Error codes: AUT0001-AUT0007')
+      .addTag('Users', 'User profile management. Error codes: DAT0001, VAL0001')
+      .addTag('Todo Lists', 'Todo list CRUD operations. Error codes: DAT0001, DAT0002, VAL0001')
+      .addTag('Todo Items', 'Todo item CRUD and status transitions. Error codes: DAT0001, DAT0002, VAL0001, VAL0004')
+      .addTag('Tags', 'Tag CRUD and assignment to todo items. Error codes: DAT0001, DAT0002, DAT0003')
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);

@@ -14,7 +14,7 @@ import { ApiAuth } from '@common/decorators/api-auth.decorator';
  * and password change.
  */
 @ApiTags('Authentication')
-@Controller('auth')
+@Controller({ path: 'auth', version: '1' })
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
