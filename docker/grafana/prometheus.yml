@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Enable remote write receiver (used by Tempo metrics generator)
+# Note: requires --web.enable-remote-write-receiver flag (set in docker-compose)
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Scrape metrics exposed by the OTel Collector's Prometheus exporter
+  - job_name: otel-collector
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # Scrape the NestJS app's own /metrics endpoint if Prometheus exporter is enabled
+  - job_name: nestjs-app
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: /metrics
