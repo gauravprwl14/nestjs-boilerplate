@@ -1,3 +1,6 @@
+// OTel SDK must be initialised before any other imports so that
+// auto-instrumentation patches are applied before modules are loaded.
+import { initOtelSdk } from '@telemetry/otel-sdk';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -20,6 +23,16 @@ import {
 } from '@common/constants';
 
 async function bootstrap(): Promise<void> {
+  // ── OTel SDK must start before NestFactory.create ──────────────────────────
+  // Read OTel config directly from process.env here because AppConfigService
+  // is not yet available at this point in the bootstrap lifecycle.
+  initOtelSdk({
+    enabled: process.env.OTEL_ENABLED === 'true',
+    serviceName: process.env.OTEL_SERVICE_NAME ?? 'ai-native-nestjs-backend',
+    exporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    exporterProtocol: process.env.OTEL_EXPORTER_OTLP_PROTOCOL ?? 'grpc',
+    environment: process.env.NODE_ENV ?? 'development',
+  });
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(AppConfigService);
   const logger = app.get(AppLogger);
