@@ -5,7 +5,7 @@ import { ErrorFactory } from '@errors/types/error-factory';
 /**
  * Pipe that validates incoming data against a Zod schema.
  *
- * Throws a VAL0001 AppError with per-field details on validation failure.
+ * Throws a VAL0001 ErrorException with per-field details on validation failure.
  *
  * @example
  * ```typescript

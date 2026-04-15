@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 
 /** Status of a single health component */
 export type ComponentStatus = 'healthy' | 'degraded' | 'unhealthy';
@@ -46,13 +46,13 @@ export class HealthService {
 
   /**
    * Readiness probe — confirms the application is ready to serve traffic.
-   * Throws AppError GEN0003 (Service unavailable) if any critical dependency is down.
+   * Throws ErrorException GEN.SERVICE_UNAVAILABLE (GEN0003) if any critical dependency is down.
    */
   async isReady(): Promise<{ status: 'ready' }> {
     const dbHealthy = await this.prisma.isHealthy();
 
     if (!dbHealthy) {
-      throw AppError.fromCode('GEN0003', {
+      throw ErrorException.fromCode('GEN.SERVICE_UNAVAILABLE', {
         message: 'Service not ready: database is unavailable',
       });
     }

@@ -8,7 +8,7 @@ const UUID_V4_REGEX =
 /**
  * Pipe that validates a string parameter is a valid UUID v4.
  *
- * Throws a VAL0001 AppError if the value is not a valid UUID v4.
+ * Throws a VAL0001 ErrorException if the value is not a valid UUID v4.
  *
  * @example
  * ```typescript

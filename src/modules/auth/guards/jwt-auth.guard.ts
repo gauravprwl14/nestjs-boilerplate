@@ -9,7 +9,7 @@ import { ErrorFactory } from '@errors/types/error-factory';
  *
  * Extends the Passport JWT AuthGuard with:
  * - Public route bypass via the @Public() decorator
- * - Consistent error mapping to domain AppError instances
+ * - Consistent error mapping to domain ErrorException instances
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -35,7 +35,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   /**
-   * Maps Passport / JWT errors to domain-specific AppError instances.
+   * Maps Passport / JWT errors to domain-specific ErrorException instances.
    */
   handleRequest<TUser = unknown>(err: unknown, user: TUser, info: unknown): TUser {
     if (err || !user) {
