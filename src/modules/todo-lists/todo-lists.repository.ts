@@ -17,8 +17,8 @@ export class TodoListsRepository extends BaseRepository<
   Prisma.TodoListWhereInput,
   Prisma.TodoListOrderByWithRelationInput
 > {
-  constructor(private readonly prisma: PrismaService) {
-    super();
+  constructor(prisma: PrismaService) {
+    super(prisma);
   }
 
   protected get delegate() {

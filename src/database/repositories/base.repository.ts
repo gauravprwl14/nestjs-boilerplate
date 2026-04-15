@@ -1,5 +1,7 @@
 import { PaginationParams, PaginatedResult, PaginationMeta } from '@common/interfaces';
 import { DEFAULT_PAGE, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@common/constants';
+import { PrismaService } from '@database/prisma.service';
+import { Prisma } from '@prisma/client';
 
 /**
  * Delegate interface that each concrete delegate (e.g. prisma.user) must satisfy.
@@ -45,6 +47,8 @@ export abstract class BaseRepository<
   TWhereInput,
   TOrderByInput,
 > {
+  constructor(protected readonly prisma: PrismaService) {}
+
   /**
    * Returns the Prisma delegate for the model (e.g. `this.prisma.user`).
    * Must be implemented by each concrete repository.
@@ -210,5 +214,32 @@ export abstract class BaseRepository<
   async exists(where?: TWhereInput): Promise<boolean> {
     const cnt = await this.delegate.count({ ...(where ? { where } : {}) });
     return cnt > 0;
+  }
+
+  /**
+   * Execute a callback within a Prisma transaction.
+   * All database operations within the callback share the same transaction.
+   *
+   * @param fn - Callback receiving the transaction client
+   * @param options - Optional transaction settings
+   * @param options.timeout - Transaction timeout in milliseconds (default: 10 000)
+   * @returns Result of the callback
+   * @throws Re-throws any error after Prisma processing
+   *
+   * @example
+   * ```typescript
+   * await this.repository.withTransaction(async (tx) => {
+   *   await tx.todoList.create({ data: listData });
+   *   await tx.todoItem.createMany({ data: itemsData });
+   * });
+   * ```
+   */
+  async withTransaction<R>(
+    fn: (tx: Prisma.TransactionClient) => Promise<R>,
+    options?: { timeout?: number },
+  ): Promise<R> {
+    return this.prisma.$transaction(fn, {
+      timeout: options?.timeout ?? 10000,
+    });
   }
 }

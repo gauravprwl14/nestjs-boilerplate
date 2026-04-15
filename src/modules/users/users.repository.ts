@@ -16,8 +16,8 @@ export class UsersRepository extends BaseRepository<
   Prisma.UserWhereInput,
   Prisma.UserOrderByWithRelationInput
 > {
-  constructor(private readonly prisma: PrismaService) {
-    super();
+  constructor(prisma: PrismaService) {
+    super(prisma);
   }
 
   /** Returns the Prisma user delegate. */

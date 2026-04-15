@@ -15,8 +15,8 @@ export class TagsRepository extends BaseRepository<
   Prisma.TagWhereInput,
   Prisma.TagOrderByWithRelationInput
 > {
-  constructor(private readonly prisma: PrismaService) {
-    super();
+  constructor(prisma: PrismaService) {
+    super(prisma);
   }
 
   protected get delegate() {

@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
@@ -53,5 +53,32 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Execute operations within a database transaction.
+   * Prefer using BaseRepository.withTransaction() in the service layer.
+   * Use this method for cross-repository transactions where multiple
+   * repositories need to participate in the same atomic operation.
+   *
+   * @param fn - Callback receiving the transaction client
+   * @param options - Transaction options
+   * @param options.timeout - Transaction timeout in milliseconds
+   * @param options.isolationLevel - Database isolation level
+   * @returns Result of the callback
+   *
+   * @example
+   * ```typescript
+   * await this.prismaService.transaction(async (tx) => {
+   *   await userRepo.createWithTx(tx, userData);
+   *   await profileRepo.createWithTx(tx, profileData);
+   * });
+   * ```
+   */
+  async transaction<R>(
+    fn: (tx: Prisma.TransactionClient) => Promise<R>,
+    options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+  ): Promise<R> {
+    return this.$transaction(fn, options);
   }
 }

@@ -28,8 +28,8 @@ export class TodoItemsRepository extends BaseRepository<
   Prisma.TodoItemWhereInput,
   Prisma.TodoItemOrderByWithRelationInput
 > {
-  constructor(private readonly prisma: PrismaService) {
-    super();
+  constructor(prisma: PrismaService) {
+    super(prisma);
   }
 
   protected get delegate() {
