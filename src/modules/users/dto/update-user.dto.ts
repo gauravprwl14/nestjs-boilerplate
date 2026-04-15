@@ -9,11 +9,11 @@ export class UpdateUserDto {
   @ApiPropertyOptional({ example: 'John', description: 'First name' })
   @IsOptional()
   @IsString()
-  firstName?: string;
+  firstName?: string | undefined;
 
   /** Optional updated last name */
   @ApiPropertyOptional({ example: 'Doe', description: 'Last name' })
   @IsOptional()
   @IsString()
-  lastName?: string;
+  lastName?: string | undefined;
 }

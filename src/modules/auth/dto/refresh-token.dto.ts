@@ -8,5 +8,5 @@ export class RefreshTokenDto {
   /** The refresh token string */
   @ApiProperty({ description: 'Refresh token obtained during login or previous refresh' })
   @IsString()
-  refreshToken: string;
+  refreshToken!: string;
 }

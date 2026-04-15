@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AppConfigService } from '@config/config.service';
 import { UsersModule } from '@modules/users/users.module';
@@ -26,9 +26,10 @@ import { RolesGuard } from './guards/roles.guard';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [AppConfigService],
-      useFactory: (config: AppConfigService) => ({
+      useFactory: (config: AppConfigService): JwtModuleOptions => ({
         secret: config.auth.jwtAccessSecret,
-        signOptions: { expiresIn: config.auth.jwtAccessExpiration },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        signOptions: { expiresIn: config.auth.jwtAccessExpiration as any },
       }),
     }),
     UsersModule,

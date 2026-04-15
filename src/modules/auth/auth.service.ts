@@ -219,7 +219,8 @@ export class AuthService {
       },
       {
         secret: jwtAccessSecret,
-        expiresIn: jwtAccessExpiration,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expiresIn: jwtAccessExpiration as any,
       },
     );
 
@@ -231,7 +232,8 @@ export class AuthService {
       },
       {
         secret: jwtRefreshSecret,
-        expiresIn: jwtRefreshExpiration,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expiresIn: jwtRefreshExpiration as any,
       },
     );
 
