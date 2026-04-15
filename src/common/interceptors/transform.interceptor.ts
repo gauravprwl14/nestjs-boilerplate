@@ -29,8 +29,21 @@ function isPaginatedResult<T>(value: unknown): value is PaginatedResult<T> {
  * Interceptor that wraps all successful controller responses into the
  * standard ApiSuccessResponse shape.
  *
- * Detects PaginatedResult payloads and automatically hoists the pagination
- * metadata into the response `meta` field.
+ * - requestId and traceId are placed at the ROOT level of the response (not inside meta).
+ * - Detects PaginatedResult payloads and automatically hoists the pagination
+ *   metadata into the response `meta` field.
+ *
+ * Response shape:
+ * ```json
+ * {
+ *   "success": true,
+ *   "data": { ... },
+ *   "meta": { "total": 100, "page": 1, ... },
+ *   "requestId": "...",
+ *   "traceId": "...",
+ *   "timestamp": "..."
+ * }
+ * ```
  */
 @Injectable()
 export class TransformInterceptor<T> implements NestInterceptor<T, ApiSuccessResponse<T>> {
@@ -40,37 +53,32 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiSuccessRes
   ): Observable<ApiSuccessResponse<T>> {
     const request = context.switchToHttp().getRequest<Request & { id?: string }>();
 
-    const requestId = request.id ?? '';
-    const traceId = trace.getActiveSpan()?.spanContext()?.traceId ?? '';
+    const requestId = request.id || undefined;
+    const traceId = trace.getActiveSpan()?.spanContext()?.traceId || undefined;
 
     return next.handle().pipe(
       map((data) => {
         const timestamp = new Date().toISOString();
 
         if (isPaginatedResult(data)) {
-          const meta: ApiResponseMeta = {
-            ...data.meta,
-            requestId,
-            traceId,
-          };
+          // Hoist pagination meta — without requestId/traceId (they are at root)
+          const meta: ApiResponseMeta = { ...data.meta };
 
           return {
             success: true,
             data: data.data as unknown as T,
             meta,
+            requestId,
+            traceId,
             timestamp,
           };
         }
 
-        const meta: ApiResponseMeta = {
-          requestId,
-          traceId,
-        };
-
         return {
           success: true,
           data,
-          meta,
+          requestId,
+          traceId,
           timestamp,
         };
       }),
