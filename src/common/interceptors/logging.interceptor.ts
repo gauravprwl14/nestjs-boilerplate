@@ -8,7 +8,6 @@ import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { AppLogger } from '@logger/logger.service';
-import { LogLevel } from '@logger/logger.interfaces';
 
 /**
  * Interceptor that logs HTTP request completion and failure events.
@@ -34,7 +33,6 @@ export class LoggingInterceptor implements NestInterceptor {
         next: () => {
           const duration = Date.now() - start;
           this.logger.logEvent('http.request.completed', {
-            level: LogLevel.INFO,
             attributes: {
               method,
               url,
@@ -47,7 +45,6 @@ export class LoggingInterceptor implements NestInterceptor {
           const duration = Date.now() - start;
           if (error instanceof Error) {
             this.logger.logError('http.request.failed', error, {
-              level: LogLevel.ERROR,
               attributes: {
                 method,
                 url,
@@ -55,13 +52,11 @@ export class LoggingInterceptor implements NestInterceptor {
               },
             });
           } else {
-            this.logger.logEvent('http.request.failed', {
-              level: LogLevel.ERROR,
+            this.logger.logError('http.request.failed', new Error(String(error)), {
               attributes: {
                 method,
                 url,
                 duration,
-                error: String(error),
               },
             });
           }

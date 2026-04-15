@@ -67,18 +67,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Normalise the exception to an ErrorException
     const errorException = this.normalise(exception);
 
-    // Log at appropriate level based on HTTP status
+    // Log at appropriate level based on HTTP status:
+    // 5xx → ERROR (logError), 4xx → WARN (log)
     const is5xx = errorException.statusCode >= 500;
-    this.logger.logError('http.request.failed', errorException, {
-      level: is5xx ? LogLevel.ERROR : LogLevel.WARN,
-      attributes: {
-        requestId,
-        traceId,
-        statusCode: errorException.statusCode,
-        method: request.method,
-        url: request.url,
-      },
-    });
+    const errorAttrs = {
+      requestId,
+      traceId,
+      statusCode: errorException.statusCode,
+      method: request.method,
+      url: request.url,
+    };
+
+    if (is5xx) {
+      this.logger.logError('http.request.failed', errorException, {
+        attributes: errorAttrs,
+      });
+    } else {
+      this.logger.log('http.request.failed', {
+        level: LogLevel.WARN,
+        attributes: errorAttrs,
+      });
+    }
 
     const body: ApiErrorResponse = {
       success: false,

@@ -25,12 +25,11 @@ export async function gracefulShutdown(
   timeoutMs: number,
 ): Promise<void> {
   logger.logEvent('process.shutdown.started', {
-    level: LogLevel.INFO,
     attributes: { signal, timeoutMs },
   });
 
   const hardExitTimer = setTimeout(() => {
-    logger.logEvent('process.shutdown.timeout', {
+    logger.log('process.shutdown.timeout', {
       level: LogLevel.WARN,
       attributes: { signal, timeoutMs },
     });
@@ -46,7 +45,6 @@ export async function gracefulShutdown(
     clearTimeout(hardExitTimer);
 
     logger.logEvent('process.shutdown.completed', {
-      level: LogLevel.INFO,
       attributes: { signal },
     });
 
@@ -56,12 +54,11 @@ export async function gracefulShutdown(
 
     if (error instanceof Error) {
       logger.logError('process.shutdown.error', error, {
-        level: LogLevel.ERROR,
         attributes: { signal },
       });
     } else {
-      logger.logEvent('process.shutdown.error', {
-        level: LogLevel.ERROR,
+      logger.log('process.shutdown.error', {
+        level: LogLevel.WARN,
         attributes: { signal, error: String(error) },
       });
     }

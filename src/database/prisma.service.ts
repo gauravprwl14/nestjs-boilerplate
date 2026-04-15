@@ -3,7 +3,6 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
-import { LogLevel } from '@logger/logger.interfaces';
 
 /**
  * Prisma database service.
@@ -29,7 +28,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$connect();
 
     this.logger.logEvent('database.connected', {
-      level: LogLevel.INFO,
       attributes: { provider: 'postgresql' },
     });
   }
@@ -37,9 +35,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
 
-    this.logger.logEvent('database.disconnected', {
-      level: LogLevel.INFO,
-    });
+    this.logger.logEvent('database.disconnected');
   }
 
   /**

@@ -51,7 +51,7 @@ export class SignatureVerificationMiddleware implements NestMiddleware {
     const timestamp = req.headers[TIMESTAMP_HEADER] as string | undefined;
 
     if (!signature || !timestamp) {
-      this.logger.logEvent('signature.missing', {
+      this.logger.log('signature.missing', {
         level: LogLevel.WARN,
         attributes: {
           'http.method': req.method,
@@ -72,7 +72,7 @@ export class SignatureVerificationMiddleware implements NestMiddleware {
     const requestTime = parseInt(timestamp, 10);
     const now = Date.now();
     if (isNaN(requestTime) || Math.abs(now - requestTime) > MAX_SIGNATURE_AGE_MS) {
-      this.logger.logEvent('signature.expired', {
+      this.logger.log('signature.expired', {
         level: LogLevel.WARN,
         attributes: { 'http.url': req.url, ageDelta: String(Math.abs(now - requestTime)) },
       });
@@ -91,7 +91,7 @@ export class SignatureVerificationMiddleware implements NestMiddleware {
     const expectedSignature = createHmac('sha256', secret).update(payload).digest('hex');
 
     if (signature !== expectedSignature) {
-      this.logger.logEvent('signature.invalid', {
+      this.logger.log('signature.invalid', {
         level: LogLevel.WARN,
         attributes: { 'http.url': req.url },
       });

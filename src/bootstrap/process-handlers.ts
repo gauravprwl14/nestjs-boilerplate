@@ -37,9 +37,10 @@ export function setupProcessHandlers(
   // ─── Uncaught exception ─────────────────────────────────────────────────────
 
   process.on(PROCESS_EVENT.UNCAUGHT_EXCEPTION, (error: Error) => {
-    logger.logError('process.uncaughtException', error, {
+    // FATAL — use log() since logError() is always ERROR level
+    logger.log('process.uncaughtException', {
       level: LogLevel.FATAL,
-      attributes: { fatal: true },
+      attributes: { fatal: true, error: error.message, stack: error.stack ?? '' },
     });
 
     // Give the logger a tick to flush before exiting
@@ -54,16 +55,14 @@ export function setupProcessHandlers(
     const error =
       reason instanceof Error ? reason : new Error(String(reason));
 
-    logger.logError('process.unhandledRejection', error, {
-      level: LogLevel.ERROR,
-    });
+    logger.logError('process.unhandledRejection', error);
     // No process.exit — unhandled rejections are considered recoverable
   });
 
   // ─── Process warning ────────────────────────────────────────────────────────
 
   process.on(PROCESS_EVENT.WARNING, (warning: Error) => {
-    logger.logEvent('process.warning', {
+    logger.log('process.warning', {
       level: LogLevel.WARN,
       attributes: {
         name: warning.name,
@@ -75,7 +74,6 @@ export function setupProcessHandlers(
   // ─── Registration confirmation ──────────────────────────────────────────────
 
   logger.logEvent('process.handlers.registered', {
-    level: LogLevel.INFO,
     attributes: {
       signals: HANDLED_SIGNALS.join(','),
       shutdownTimeoutMs,

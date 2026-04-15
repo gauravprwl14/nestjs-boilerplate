@@ -41,7 +41,14 @@ export class AppLogger implements IAppLogger, LoggerService {
   // ─── IAppLogger implementation ────────────────────────────────────────────────
 
   /**
-   * Logs a plain message with optional structured attributes.
+   * Logs a plain message with optional level override and structured attributes.
+   * This is the escape hatch — use it when you need a level other than INFO or ERROR.
+   *
+   * @example
+   * ```typescript
+   * logger.log('Process exiting', { level: LogLevel.FATAL, attributes: { pid: process.pid } });
+   * logger.log('Queue depth high', { level: LogLevel.WARN, attributes: { depth: 500 } });
+   * ```
    */
   log(message: string, options: ILogOptions = {}): void {
     if (options.enabled === false) return;
@@ -59,12 +66,18 @@ export class AppLogger implements IAppLogger, LoggerService {
   }
 
   /**
-   * Logs a named structured event and adds it as an OTel span event.
+   * Logs a named structured event at INFO level and adds it as an OTel span event.
+   *
+   * @example
+   * ```typescript
+   * logger.logEvent('user.created', { attributes: { userId, email } });
+   * logger.logEvent('cache.invalidated', { attributes: { key }, logOnly: true });
+   * ```
    */
   logEvent(eventName: string, options: ILogEventOptions = {}): void {
     if (options.enabled === false) return;
 
-    const level = options.level ?? LogLevel.INFO;
+    const level = LogLevel.INFO;
     const attributes = this.mergeAttributes(options.attributes);
 
     if (!options.spanOnly) {
@@ -80,12 +93,19 @@ export class AppLogger implements IAppLogger, LoggerService {
   }
 
   /**
-   * Logs an error and optionally records it on the active OTel span.
+   * Logs an error at ERROR level and optionally records it on the active OTel span.
+   * For FATAL-level errors, use log() with level: LogLevel.FATAL instead.
+   *
+   * @example
+   * ```typescript
+   * logger.logError('payment.failed', error, { attributes: { orderId } });
+   * logger.logError('db.query.failed', error, { recordException: false });
+   * ```
    */
   logError(eventName: string, error: Error, options: ILogErrorOptions = {}): void {
     if (options.enabled === false) return;
 
-    const level = options.level ?? LogLevel.ERROR;
+    const level = LogLevel.ERROR;
     const errorAttrs = extractErrorInfo(error);
     const attributes = this.mergeAttributes({ ...options.attributes, ...errorAttrs });
 
@@ -123,6 +143,16 @@ export class AppLogger implements IAppLogger, LoggerService {
   /**
    * Returns a new AppLogger with this logger's persistent attributes merged
    * with the provided context. Does NOT mutate shared/global state.
+   *
+   * @example
+   * ```typescript
+   * // Scoped to a specific context string
+   * const childLogger = logger.child('PaymentService');
+   *
+   * // Scoped with persistent attributes merged into every log call
+   * const reqLogger = logger.child({ requestId, userId });
+   * reqLogger.logEvent('payment.initiated', { attributes: { amount } });
+   * ```
    */
   child(context: string | LogAttributes): IAppLogger {
     const childLogger = new AppLogger(this.pinoLogger);
