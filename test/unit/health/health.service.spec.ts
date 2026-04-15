@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HealthService } from '@modules/health/health.service';
 import { PrismaService } from '@database/prisma.service';
 import { createMockPrisma } from '../../helpers/mock-prisma';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 
 describe('HealthService', () => {
   let service: HealthService;
@@ -50,7 +50,7 @@ describe('HealthService', () => {
       mockPrisma.isHealthy.mockResolvedValue(false);
 
       // --- ACT & ASSERT ---
-      await expect(service.isReady()).rejects.toBeInstanceOf(AppError);
+      await expect(service.isReady()).rejects.toBeInstanceOf(ErrorException);
       await expect(service.isReady()).rejects.toMatchObject({
         code: 'GEN0003',
         statusCode: 503,

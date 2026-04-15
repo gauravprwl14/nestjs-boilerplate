@@ -1,7 +1,7 @@
 import { ZodError } from 'zod';
 import { z } from 'zod';
 import { ErrorFactory } from '@errors/types/error-factory';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 
 describe('ErrorFactory', () => {
   describe('validation()', () => {
@@ -10,7 +10,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.validation();
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('VAL0001');
       expect(error.statusCode).toBe(400);
     });
@@ -44,7 +44,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.notFound('User');
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('DAT0001');
       expect(error.statusCode).toBe(404);
       expect(error.message).toContain('User');
@@ -77,7 +77,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.uniqueViolation('email');
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('DAT0003');
       expect(error.statusCode).toBe(409);
       expect(error.message).toContain('email');
@@ -100,7 +100,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.invalidStatusTransition('PENDING', 'ARCHIVED');
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('VAL0004');
       expect(error.statusCode).toBe(400);
       expect(error.message).toContain('PENDING');
@@ -109,7 +109,7 @@ describe('ErrorFactory', () => {
   });
 
   describe('fromZodErrors()', () => {
-    it('should convert Zod errors to AppError with field details', () => {
+    it('should convert Zod errors to ErrorException with field details', () => {
       // --- ARRANGE ---
       const schema = z.object({
         email: z.string().email(),
@@ -127,7 +127,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.fromZodErrors(zodError!);
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('VAL0001');
       expect(error.details).toBeDefined();
       expect(error.details!.length).toBeGreaterThan(0);
@@ -159,7 +159,7 @@ describe('ErrorFactory', () => {
       const error = ErrorFactory.internal();
 
       // --- ASSERT ---
-      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(ErrorException);
       expect(error.code).toBe('SRV0001');
       expect(error.statusCode).toBe(500);
       expect(error.isOperational).toBe(false);

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TodoListsService } from '@modules/todo-lists/todo-lists.service';
 import { TodoListsRepository } from '@modules/todo-lists/todo-lists.repository';
 import { createTestTodoList } from '../../helpers/factories';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 
 const createMockTodoListsRepository = () => ({
@@ -101,7 +101,7 @@ describe('TodoListsService', () => {
       mockRepo.findFirst.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
-      await expect(service.findOne(userId, listId)).rejects.toBeInstanceOf(AppError);
+      await expect(service.findOne(userId, listId)).rejects.toBeInstanceOf(ErrorException);
       await expect(service.findOne(userId, listId)).rejects.toMatchObject({
         code: 'DAT0001',
         statusCode: 404,

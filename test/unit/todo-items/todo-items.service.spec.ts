@@ -5,7 +5,7 @@ import { TodoItemsRepository } from '@modules/todo-items/todo-items.repository';
 import { TodoListsService } from '@modules/todo-lists/todo-lists.service';
 import { TODO_QUEUE } from '@/queue/queue.module';
 import { createTestTodoItem, createTestTodoList } from '../../helpers/factories';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 
 const createMockTodoItemsRepository = () => ({
@@ -146,7 +146,7 @@ describe('TodoItemsService', () => {
       // --- ACT & ASSERT ---
       await expect(
         service.update(userId, item.id as string, { status: 'PENDING' as never }),
-      ).rejects.toBeInstanceOf(AppError);
+      ).rejects.toBeInstanceOf(ErrorException);
 
       await expect(
         service.update(userId, item.id as string, { status: 'PENDING' as never }),

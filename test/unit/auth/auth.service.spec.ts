@@ -7,7 +7,7 @@ import { AppConfigService } from '@config/config.service';
 import { createMockPrisma } from '../../helpers/mock-prisma';
 import { createMockConfig } from '../../helpers/mock-config';
 import { createTestUser } from '../../helpers/factories';
-import { AppError } from '@errors/types/app-error';
+import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 import * as bcrypt from 'bcrypt';
 
@@ -105,7 +105,7 @@ describe('AuthService', () => {
       mockUsersRepo.findByEmail.mockResolvedValue(existingUser);
 
       // --- ACT & ASSERT ---
-      await expect(service.register(dto)).rejects.toBeInstanceOf(AppError);
+      await expect(service.register(dto)).rejects.toBeInstanceOf(ErrorException);
       await expect(service.register(dto)).rejects.toMatchObject({
         code: 'DAT0003',
         statusCode: 409,

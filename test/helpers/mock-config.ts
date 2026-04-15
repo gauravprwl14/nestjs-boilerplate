@@ -30,7 +30,6 @@ export const createMockConfig = () => ({
   throttle: { ttl: 60000, limit: 1000 },
   cors: { origins: ['http://localhost:3001'] },
   shutdown: { timeoutMs: 5000 },
-  apiPath: 'api/v1',
   isDevelopment: false,
   isProduction: false,
   isTest: true,
