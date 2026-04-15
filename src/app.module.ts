@@ -6,6 +6,7 @@ import { AppConfigService } from '@config/config.service';
 import { PrismaModule } from '@database/prisma.module';
 import { AppLoggerModule } from '@logger/logger.module';
 import { HealthModule } from '@modules/health/health.module';
+import { TelemetryModule } from '@telemetry/telemetry.module';
 import { RequestIdMiddleware } from '@common/middleware/request-id.middleware';
 import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.middleware';
 
@@ -15,6 +16,7 @@ import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.m
     AppConfigModule,
     AppLoggerModule,
     PrismaModule,
+    TelemetryModule,
     // Rate limiting
     ThrottlerModule.forRootAsync({
       inject: [AppConfigService],
