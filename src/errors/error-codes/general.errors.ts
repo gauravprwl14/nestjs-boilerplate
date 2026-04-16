@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * General / infrastructure error codes (GEN prefix).
  * These cover rate limiting, timeouts, and availability issues.
  */
-export const GENERAL_ERRORS = {
+export const GEN = {
   /** Rate limit exceeded — caller is sending too many requests */
   RATE_LIMITED: {
     code: 'GEN0001',

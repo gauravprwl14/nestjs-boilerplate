@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * Database error codes (DAT prefix).
  * All errors relate to persistence-layer operations.
  */
-export const DATABASE_ERRORS = {
+export const DAT = {
   /** The requested resource could not be found */
   NOT_FOUND: {
     code: 'DAT0001',

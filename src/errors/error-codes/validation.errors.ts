@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * Validation error codes (VAL prefix).
  * All errors relate to invalid or missing input data.
  */
-export const VALIDATION_ERRORS = {
+export const VAL = {
   /** General invalid input — catch-all for validation failures */
   INVALID_INPUT: {
     code: 'VAL0001',

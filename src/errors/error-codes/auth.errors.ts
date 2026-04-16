@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * Authentication error codes (AUT prefix).
  * All errors relate to identity verification and session management.
  */
-export const AUTH_ERRORS = {
+export const AUT = {
   /** No valid authentication credentials were provided */
   UNAUTHENTICATED: {
     code: 'AUT0001',

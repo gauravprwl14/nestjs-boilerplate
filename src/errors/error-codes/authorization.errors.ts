@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * Authorization error codes (AUZ prefix).
  * All errors relate to permission and access-control checks.
  */
-export const AUTHORIZATION_ERRORS = {
+export const AUZ = {
   /** Caller is authenticated but access to the resource is denied */
   FORBIDDEN: {
     code: 'AUZ0001',

@@ -5,7 +5,7 @@ import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '..
  * Server / infrastructure error codes (SRV prefix).
  * All errors relate to internal server failures, queues, and caching.
  */
-export const SERVER_ERRORS = {
+export const SRV = {
   /** Unexpected internal server error — message masked from end users */
   INTERNAL_ERROR: {
     code: 'SRV0001',
