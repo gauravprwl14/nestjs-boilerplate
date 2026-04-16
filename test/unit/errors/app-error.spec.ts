@@ -3,36 +3,22 @@
  * All AppError references have been updated to ErrorException.
  */
 import { ErrorException } from '@errors/types/error-exception';
-import { ERROR_CODES } from '@errors/error-codes';
+import { ERROR_CODES, VAL, DAT, SRV } from '@errors/error-codes';
 
 describe('ErrorException (migrated from AppError)', () => {
   describe('constructor', () => {
     it('should create with correct properties', () => {
-      // --- ARRANGE ---
-      const code = 'VAL0001';
-      const message = 'Test validation error';
-      const statusCode = 400;
-
-      // --- ACT ---
-      const error = new ErrorException(code, message, statusCode);
-
-      // --- ASSERT ---
-      expect(error.code).toBe(code);
-      expect(error.message).toBe(message);
-      expect(error.statusCode).toBe(statusCode);
-      expect(error.isOperational).toBe(true);
-      expect(error.details).toBeUndefined();
-      expect(error.cause).toBeUndefined();
-    });
-
-    it('should set isOperational to false when specified', () => {
       // --- ARRANGE & ACT ---
-      const error = new ErrorException('SRV0001', 'Internal error', 500, {
-        isOperational: false,
+      const error = new ErrorException(VAL.INVALID_INPUT, {
+        message: 'Test validation error',
       });
 
       // --- ASSERT ---
-      expect(error.isOperational).toBe(false);
+      expect(error.code).toBe('VAL0001');
+      expect(error.message).toBe('Test validation error');
+      expect(error.statusCode).toBe(400);
+      expect(error.details).toBeUndefined();
+      expect(error.cause).toBeUndefined();
     });
 
     it('should set details when provided', () => {
@@ -40,7 +26,7 @@ describe('ErrorException (migrated from AppError)', () => {
       const details = [{ field: 'email', message: 'Must be valid email' }];
 
       // --- ACT ---
-      const error = new ErrorException('VAL0001', 'Validation error', 400, { details });
+      const error = new ErrorException(VAL.INVALID_INPUT, { details });
 
       // --- ASSERT ---
       expect(error.details).toEqual(details);
@@ -51,17 +37,17 @@ describe('ErrorException (migrated from AppError)', () => {
       const cause = new Error('original error');
 
       // --- ACT ---
-      const error = new ErrorException('SRV0001', 'Server error', 500, { cause });
+      const error = new ErrorException(SRV.INTERNAL_ERROR, { cause });
 
       // --- ASSERT ---
       expect(error.cause).toBe(cause);
     });
   });
 
-  describe('fromCode', () => {
-    it('should create from ERROR_CODES using dot-notation key', () => {
+  describe('definition access', () => {
+    it('should create from definition with correct properties', () => {
       // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT');
+      const error = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ASSERT ---
       expect(error.code).toBe(ERROR_CODES.VAL.INVALID_INPUT.code);
@@ -74,7 +60,7 @@ describe('ErrorException (migrated from AppError)', () => {
       const customMessage = 'Custom error message';
 
       // --- ACT ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT', { message: customMessage });
+      const error = new ErrorException(VAL.INVALID_INPUT, { message: customMessage });
 
       // --- ASSERT ---
       expect(error.message).toBe(customMessage);
@@ -83,7 +69,7 @@ describe('ErrorException (migrated from AppError)', () => {
 
     it('should create DAT.NOT_FOUND with correct http status', () => {
       // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('DAT.NOT_FOUND');
+      const error = new ErrorException(DAT.NOT_FOUND);
 
       // --- ASSERT ---
       expect(error.statusCode).toBe(404);
@@ -91,7 +77,7 @@ describe('ErrorException (migrated from AppError)', () => {
 
     it('should create SRV.INTERNAL_ERROR with correct http status', () => {
       // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('SRV.INTERNAL_ERROR');
+      const error = new ErrorException(SRV.INTERNAL_ERROR);
 
       // --- ASSERT ---
       expect(error.statusCode).toBe(500);
@@ -101,7 +87,7 @@ describe('ErrorException (migrated from AppError)', () => {
   describe('wrap', () => {
     it('should return existing ErrorException as-is', () => {
       // --- ARRANGE ---
-      const original = new ErrorException('VAL0001', 'Validation error', 400);
+      const original = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ACT ---
       const wrapped = ErrorException.wrap(original);
@@ -120,7 +106,6 @@ describe('ErrorException (migrated from AppError)', () => {
       // --- ASSERT ---
       expect(wrapped).toBeInstanceOf(ErrorException);
       expect(wrapped.code).toBe('SRV0001');
-      expect(wrapped.isOperational).toBe(false);
       expect(wrapped.cause).toBe(unknownError);
     });
 
@@ -134,34 +119,25 @@ describe('ErrorException (migrated from AppError)', () => {
       // --- ASSERT ---
       expect(wrapped).toBeInstanceOf(ErrorException);
       expect(wrapped.code).toBe('SRV0001');
-      expect(wrapped.isOperational).toBe(false);
     });
   });
 
   describe('isErrorException', () => {
     it('should return true for ErrorException instances', () => {
-      // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Test', 400);
-
-      // --- ACT & ASSERT ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
       expect(ErrorException.isErrorException(error)).toBe(true);
     });
 
     it('should return false for plain Error instances', () => {
-      // --- ARRANGE ---
       const error = new Error('Not an ErrorException');
-
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(error)).toBe(false);
     });
 
     it('should return false for null', () => {
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(null)).toBe(false);
     });
 
     it('should return false for undefined', () => {
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(undefined)).toBe(false);
     });
   });
@@ -169,7 +145,7 @@ describe('ErrorException (migrated from AppError)', () => {
   describe('toLog', () => {
     it('should include all basic properties', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Test error', 400);
+      const error = new ErrorException(VAL.INVALID_INPUT, { message: 'Test error' });
 
       // --- ACT ---
       const log = error.toLog();
@@ -178,25 +154,24 @@ describe('ErrorException (migrated from AppError)', () => {
       expect(log.code).toBe('VAL0001');
       expect(log.message).toBe('Test error');
       expect(log.statusCode).toBe(400);
-      expect(log.isOperational).toBe(true);
     });
 
     it('should include cause details when cause is an Error', () => {
       // --- ARRANGE ---
       const cause = new Error('Root cause');
-      const error = new ErrorException('SRV0001', 'Server error', 500, { cause });
+      const error = new ErrorException(SRV.INTERNAL_ERROR, { cause });
 
       // --- ACT ---
       const log = error.toLog();
 
       // --- ASSERT ---
       expect(log.cause).toBeDefined();
-      expect((log.cause as Record<string, unknown>).message).toBe('Root cause');
+      expect((log.cause as Array<{ message: string }>)[0].message).toBe('Root cause');
     });
 
-    it('should not include cause when cause is not an Error', () => {
+    it('should not include cause when no cause', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Validation error', 400);
+      const error = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ACT ---
       const log = error.toLog();
@@ -207,10 +182,10 @@ describe('ErrorException (migrated from AppError)', () => {
   });
 
   describe('toResponse', () => {
-    it('should include original message for operational errors', () => {
+    it('should include original message for userFacing errors', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Custom validation message', 400, {
-        isOperational: true,
+      const error = new ErrorException(VAL.INVALID_INPUT, {
+        message: 'Custom validation message',
       });
 
       // --- ACT ---
@@ -221,10 +196,10 @@ describe('ErrorException (migrated from AppError)', () => {
       expect(response.code).toBe('VAL0001');
     });
 
-    it('should mask message for non-operational errors', () => {
+    it('should mask message for non-userFacing errors', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('SRV0001', 'Sensitive internal error details', 500, {
-        isOperational: false,
+      const error = new ErrorException(SRV.INTERNAL_ERROR, {
+        message: 'Sensitive internal error details',
       });
 
       // --- ACT ---

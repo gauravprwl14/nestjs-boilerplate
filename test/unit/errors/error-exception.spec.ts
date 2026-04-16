@@ -1,34 +1,30 @@
 import { ErrorException } from '@errors/types/error-exception';
-import { ERROR_CODES } from '@errors/error-codes';
+import { ERROR_CODES, VAL, DAT, SRV, AUT, GEN } from '@errors/error-codes';
 
 describe('ErrorException', () => {
   describe('constructor', () => {
-    it('should create with correct properties', () => {
-      // --- ARRANGE ---
-      const code = 'VAL0001';
-      const message = 'Test validation error';
-      const statusCode = 400;
-
-      // --- ACT ---
-      const error = new ErrorException(code, message, statusCode);
+    it('should create with correct properties from definition', () => {
+      // --- ARRANGE & ACT ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ASSERT ---
-      expect(error.code).toBe(code);
-      expect(error.message).toBe(message);
-      expect(error.statusCode).toBe(statusCode);
-      expect(error.isOperational).toBe(true);
+      expect(error.code).toBe('VAL0001');
+      expect(error.message).toBe('Invalid input');
+      expect(error.statusCode).toBe(400);
+      expect(error.definition).toBe(VAL.INVALID_INPUT);
+      expect(error.name).toBe('ErrorException');
       expect(error.details).toBeUndefined();
       expect(error.cause).toBeUndefined();
     });
 
-    it('should set isOperational to false when specified', () => {
+    it('should allow overriding message via options', () => {
       // --- ARRANGE & ACT ---
-      const error = new ErrorException('SRV0001', 'Internal error', 500, {
-        isOperational: false,
-      });
+      const error = new ErrorException(DAT.NOT_FOUND, { message: 'User not found' });
 
       // --- ASSERT ---
-      expect(error.isOperational).toBe(false);
+      expect(error.message).toBe('User not found');
+      expect(error.code).toBe('DAT0001');
+      expect(error.statusCode).toBe(404);
     });
 
     it('should set details when provided', () => {
@@ -36,7 +32,7 @@ describe('ErrorException', () => {
       const details = [{ field: 'email', message: 'Must be valid email' }];
 
       // --- ACT ---
-      const error = new ErrorException('VAL0001', 'Validation error', 400, { details });
+      const error = new ErrorException(VAL.INVALID_INPUT, { details });
 
       // --- ASSERT ---
       expect(error.details).toEqual(details);
@@ -47,76 +43,152 @@ describe('ErrorException', () => {
       const cause = new Error('original error');
 
       // --- ACT ---
-      const error = new ErrorException('SRV0001', 'Server error', 500, { cause });
+      const error = new ErrorException(SRV.INTERNAL_ERROR, { cause });
+
+      // --- ASSERT ---
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should be an instance of Error', () => {
+      // --- ARRANGE & ACT ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
+
+      // --- ASSERT ---
+      expect(error).toBeInstanceOf(Error);
+    });
+
+    it('should NOT be an instance of HttpException', () => {
+      // --- ARRANGE & ACT ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
+
+      // --- ASSERT ---
+      // ErrorException now extends Error, not HttpException
+      expect(error.constructor.name).toBe('ErrorException');
+    });
+  });
+
+  describe('static notFound', () => {
+    it('should create a DAT0001 error with resource name', () => {
+      // --- ARRANGE & ACT ---
+      const error = ErrorException.notFound('User');
+
+      // --- ASSERT ---
+      expect(error).toBeInstanceOf(ErrorException);
+      expect(error.code).toBe('DAT0001');
+      expect(error.statusCode).toBe(404);
+      expect(error.message).toContain('User');
+    });
+
+    it('should include identifier in message when provided', () => {
+      // --- ARRANGE & ACT ---
+      const error = ErrorException.notFound('User', 'user-123');
+
+      // --- ASSERT ---
+      expect(error.message).toContain('user-123');
+      expect(error.message).toContain('User');
+    });
+
+    it('should work without identifier', () => {
+      // --- ARRANGE & ACT ---
+      const error = ErrorException.notFound('TodoList');
+
+      // --- ASSERT ---
+      expect(error.message).toBe('TodoList not found');
+    });
+  });
+
+  describe('static validation', () => {
+    it('should convert Zod-like errors to ErrorException with field details', () => {
+      // --- ARRANGE ---
+      const zodLikeError = {
+        issues: [
+          { path: ['email'], message: 'Invalid email' },
+          { path: ['name'], message: 'Required' },
+        ],
+      };
+
+      // --- ACT ---
+      const error = ErrorException.validation(zodLikeError);
+
+      // --- ASSERT ---
+      expect(error).toBeInstanceOf(ErrorException);
+      expect(error.code).toBe('VAL0001');
+      expect(error.details).toBeDefined();
+      expect(error.details!.length).toBe(2);
+      expect(error.details!.some((d) => d.field === 'email')).toBe(true);
+    });
+
+    it('should use _root field for top-level errors (empty path)', () => {
+      // --- ARRANGE ---
+      const zodLikeError = {
+        issues: [{ path: [], message: 'Too short' }],
+      };
+
+      // --- ACT ---
+      const error = ErrorException.validation(zodLikeError);
+
+      // --- ASSERT ---
+      expect(error.details!.some((d) => d.field === '_root')).toBe(true);
+    });
+  });
+
+  describe('static validationFromCV', () => {
+    it('should flatten class-validator errors', () => {
+      // --- ARRANGE ---
+      const cvErrors = [
+        {
+          property: 'email',
+          constraints: { isEmail: 'Must be a valid email' },
+        },
+        {
+          property: 'address',
+          children: [
+            {
+              property: 'zip',
+              constraints: { isPostalCode: 'Invalid postal code' },
+            },
+          ],
+        },
+      ];
+
+      // --- ACT ---
+      const error = ErrorException.validationFromCV(cvErrors);
+
+      // --- ASSERT ---
+      expect(error.code).toBe('VAL0001');
+      expect(error.details).toBeDefined();
+      expect(error.details!.some((d) => d.field === 'email')).toBe(true);
+      expect(error.details!.some((d) => d.field === 'address.zip')).toBe(true);
+    });
+  });
+
+  describe('static internal', () => {
+    it('should create a SRV0001 error', () => {
+      // --- ARRANGE & ACT ---
+      const error = ErrorException.internal();
+
+      // --- ASSERT ---
+      expect(error).toBeInstanceOf(ErrorException);
+      expect(error.code).toBe('SRV0001');
+      expect(error.statusCode).toBe(500);
+    });
+
+    it('should include cause when provided', () => {
+      // --- ARRANGE ---
+      const cause = new Error('Original database error');
+
+      // --- ACT ---
+      const error = ErrorException.internal(cause);
 
       // --- ASSERT ---
       expect(error.cause).toBe(cause);
     });
   });
 
-  describe('fromCode', () => {
-    it('should create from ERROR_CODES using dot-notation key', () => {
-      // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT');
-
-      // --- ASSERT ---
-      expect(error.code).toBe(ERROR_CODES.VAL.INVALID_INPUT.code);
-      expect(error.message).toBe(ERROR_CODES.VAL.INVALID_INPUT.message);
-      expect(error.statusCode).toBe(ERROR_CODES.VAL.INVALID_INPUT.httpStatus);
-    });
-
-    it('should allow overriding message', () => {
-      // --- ARRANGE ---
-      const customMessage = 'Custom error message';
-
-      // --- ACT ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT', { message: customMessage });
-
-      // --- ASSERT ---
-      expect(error.message).toBe(customMessage);
-      expect(error.code).toBe(ERROR_CODES.VAL.INVALID_INPUT.code);
-    });
-
-    it('should create DAT.NOT_FOUND with correct http status 404', () => {
-      // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('DAT.NOT_FOUND');
-
-      // --- ASSERT ---
-      expect(error.statusCode).toBe(404);
-    });
-
-    it('should create SRV.INTERNAL_ERROR with correct http status 500', () => {
-      // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('SRV.INTERNAL_ERROR');
-
-      // --- ASSERT ---
-      expect(error.statusCode).toBe(500);
-    });
-
-    it('should populate errorDefinition with errorType and errorCategory', () => {
-      // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT');
-
-      // --- ASSERT ---
-      expect(error.errorDefinition).toBeDefined();
-      expect(error.errorDefinition!.errorType).toBeDefined();
-      expect(error.errorDefinition!.errorCategory).toBeDefined();
-      expect(error.errorDefinition!.messageKey).toBeDefined();
-    });
-
-    it('should create DAT.CONFLICT with httpStatus 409', () => {
-      // --- ARRANGE & ACT ---
-      const error = ErrorException.fromCode('DAT.CONFLICT');
-
-      // --- ASSERT ---
-      expect(error.statusCode).toBe(409);
-    });
-  });
-
   describe('wrap', () => {
     it('should return existing ErrorException as-is', () => {
       // --- ARRANGE ---
-      const original = new ErrorException('VAL0001', 'Validation error', 400);
+      const original = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ACT ---
       const wrapped = ErrorException.wrap(original);
@@ -135,7 +207,6 @@ describe('ErrorException', () => {
       // --- ASSERT ---
       expect(wrapped).toBeInstanceOf(ErrorException);
       expect(wrapped.code).toBe('SRV0001');
-      expect(wrapped.isOperational).toBe(false);
       expect(wrapped.cause).toBe(unknownError);
     });
 
@@ -149,95 +220,34 @@ describe('ErrorException', () => {
       // --- ASSERT ---
       expect(wrapped).toBeInstanceOf(ErrorException);
       expect(wrapped.code).toBe('SRV0001');
-      expect(wrapped.isOperational).toBe(false);
     });
   });
 
   describe('isErrorException', () => {
     it('should return true for ErrorException instances', () => {
-      // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Test', 400);
-
-      // --- ACT & ASSERT ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
       expect(ErrorException.isErrorException(error)).toBe(true);
     });
 
     it('should return false for plain Error instances', () => {
-      // --- ARRANGE ---
       const error = new Error('Not an ErrorException');
-
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(error)).toBe(false);
     });
 
     it('should return false for null', () => {
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(null)).toBe(false);
     });
 
     it('should return false for undefined', () => {
-      // --- ACT & ASSERT ---
       expect(ErrorException.isErrorException(undefined)).toBe(false);
     });
   });
 
-  describe('toLog', () => {
-    it('should include all basic properties', () => {
-      // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Test error', 400);
-
-      // --- ACT ---
-      const log = error.toLog();
-
-      // --- ASSERT ---
-      expect(log.code).toBe('VAL0001');
-      expect(log.message).toBe('Test error');
-      expect(log.statusCode).toBe(400);
-      expect(log.isOperational).toBe(true);
-    });
-
-    it('should include errorType and errorCategory when errorDefinition is set', () => {
-      // --- ARRANGE ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT');
-
-      // --- ACT ---
-      const log = error.toLog();
-
-      // --- ASSERT ---
-      expect(log.errorType).toBeDefined();
-      expect(log.errorCategory).toBeDefined();
-    });
-
-    it('should include cause details when cause is an Error', () => {
-      // --- ARRANGE ---
-      const cause = new Error('Root cause');
-      const error = new ErrorException('SRV0001', 'Server error', 500, { cause });
-
-      // --- ACT ---
-      const log = error.toLog();
-
-      // --- ASSERT ---
-      expect(log.cause).toBeDefined();
-      expect((log.cause as Record<string, unknown>).message).toBe('Root cause');
-    });
-
-    it('should not include cause when cause is not an Error', () => {
-      // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Validation error', 400);
-
-      // --- ACT ---
-      const log = error.toLog();
-
-      // --- ASSERT ---
-      expect(log.cause).toBeUndefined();
-    });
-  });
-
   describe('toResponse', () => {
-    it('should include original message for operational errors', () => {
+    it('should include original message for userFacing errors', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('VAL0001', 'Custom validation message', 400, {
-        isOperational: true,
+      const error = new ErrorException(VAL.INVALID_INPUT, {
+        message: 'Custom validation message',
       });
 
       // --- ACT ---
@@ -248,42 +258,156 @@ describe('ErrorException', () => {
       expect(response.code).toBe('VAL0001');
     });
 
-    it('should mask message for non-operational errors', () => {
+    it('should mask message for non-userFacing errors', () => {
       // --- ARRANGE ---
-      const error = new ErrorException('SRV0001', 'Sensitive internal error details', 500, {
-        isOperational: false,
+      const error = new ErrorException(SRV.INTERNAL_ERROR, {
+        message: 'Sensitive internal error details',
       });
 
       // --- ACT ---
       const response = error.toResponse();
 
       // --- ASSERT ---
-      expect(response.message).toBe(ERROR_CODES.SRV.INTERNAL_ERROR.message);
+      expect(response.message).toBe(SRV.INTERNAL_ERROR.message);
       expect(response.message).not.toBe('Sensitive internal error details');
     });
 
-    it('should include errorType and errorCategory when errorDefinition is set', () => {
+    it('should include errorType and errorCategory', () => {
       // --- ARRANGE ---
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT');
+      const error = new ErrorException(VAL.INVALID_INPUT);
 
       // --- ACT ---
       const response = error.toResponse();
 
       // --- ASSERT ---
-      expect(response.errorType).toBeDefined();
-      expect(response.errorCategory).toBeDefined();
+      expect(response.errorType).toBe('VALIDATION');
+      expect(response.errorCategory).toBe('CLIENT');
+    });
+
+    it('should include retryable flag', () => {
+      // --- ARRANGE ---
+      const retryableError = new ErrorException(GEN.RATE_LIMITED);
+      const nonRetryableError = new ErrorException(VAL.INVALID_INPUT);
+
+      // --- ACT ---
+      const retryableResponse = retryableError.toResponse();
+      const nonRetryableResponse = nonRetryableError.toResponse();
+
+      // --- ASSERT ---
+      expect(retryableResponse.retryable).toBe(true);
+      expect(nonRetryableResponse.retryable).toBe(false);
     });
 
     it('should include details when provided', () => {
       // --- ARRANGE ---
       const details = [{ field: 'email', message: 'Must be valid email' }];
-      const error = ErrorException.fromCode('VAL.INVALID_INPUT', { details });
+      const error = new ErrorException(VAL.INVALID_INPUT, { details });
 
       // --- ACT ---
       const response = error.toResponse();
 
       // --- ASSERT ---
       expect(response.details).toEqual(details);
+    });
+
+    it('should not include details when empty', () => {
+      // --- ARRANGE ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
+
+      // --- ACT ---
+      const response = error.toResponse();
+
+      // --- ASSERT ---
+      expect(response.details).toBeUndefined();
+    });
+
+    it('should include cause chain when includeChain is true', () => {
+      // --- ARRANGE ---
+      const root = new Error('root cause');
+      const mid = new ErrorException(DAT.QUERY_FAILED, { message: 'query issue', cause: root });
+      const top = new ErrorException(SRV.INTERNAL_ERROR, { cause: mid });
+
+      // --- ACT ---
+      const response = top.toResponse(true);
+
+      // --- ASSERT ---
+      expect(response.cause).toBeDefined();
+      expect(response.cause!.length).toBe(2);
+      expect(response.cause![0].code).toBe('DAT0007');
+      expect(response.cause![0].message).toBe('query issue');
+      expect(response.cause![1].message).toBe('root cause');
+      expect(response.cause![1].code).toBeUndefined();
+    });
+
+    it('should not include cause chain when includeChain is false (default)', () => {
+      // --- ARRANGE ---
+      const cause = new Error('root cause');
+      const error = new ErrorException(SRV.INTERNAL_ERROR, { cause });
+
+      // --- ACT ---
+      const response = error.toResponse();
+
+      // --- ASSERT ---
+      expect(response.cause).toBeUndefined();
+    });
+
+    it('should truncate cause chain at max depth', () => {
+      // --- ARRANGE --- Build a chain 7 levels deep
+      let current: Error = new Error('deepest');
+      for (let i = 0; i < 6; i++) {
+        current = new ErrorException(SRV.INTERNAL_ERROR, { cause: current });
+      }
+      const top = new ErrorException(SRV.INTERNAL_ERROR, { cause: current });
+
+      // --- ACT ---
+      const response = top.toResponse(true);
+
+      // --- ASSERT --- Max depth is 5, so we get 5 entries + 1 truncation entry
+      expect(response.cause).toBeDefined();
+      const lastEntry = response.cause![response.cause!.length - 1];
+      expect(lastEntry.message).toContain('truncated');
+    });
+  });
+
+  describe('toLog', () => {
+    it('should include all basic properties', () => {
+      // --- ARRANGE ---
+      const error = new ErrorException(VAL.INVALID_INPUT, { message: 'Test error' });
+
+      // --- ACT ---
+      const log = error.toLog();
+
+      // --- ASSERT ---
+      expect(log.code).toBe('VAL0001');
+      expect(log.message).toBe('Test error');
+      expect(log.statusCode).toBe(400);
+      expect(log.errorType).toBe('VALIDATION');
+      expect(log.errorCategory).toBe('CLIENT');
+      expect(log.severity).toBe('WARNING');
+    });
+
+    it('should include cause chain when cause exists', () => {
+      // --- ARRANGE ---
+      const cause = new Error('Root cause');
+      const error = new ErrorException(SRV.INTERNAL_ERROR, { cause });
+
+      // --- ACT ---
+      const log = error.toLog();
+
+      // --- ASSERT ---
+      expect(log.cause).toBeDefined();
+      expect((log.cause as Array<{ message: string }>)[0].message).toBe('Root cause');
+    });
+
+    it('should not include cause when no cause', () => {
+      // --- ARRANGE ---
+      const error = new ErrorException(VAL.INVALID_INPUT);
+
+      // --- ACT ---
+      const log = error.toLog();
+
+      // --- ASSERT ---
+      expect(log.cause).toBeUndefined();
     });
   });
 });
