@@ -1,1 +1,8 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run lint-staged first so formatting/linting always applies
 npx lint-staged
+
+# Run doc-sync check after lint-staged
+"$(dirname -- "$0")/check-docs-sync.sh"
