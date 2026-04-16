@@ -38,11 +38,15 @@ export interface ApiErrorDetail {
   /** Human-readable error message */
   message: string;
   /** High-level error type classification */
-  errorType?: string;
+  errorType: string;
   /** Error category for metrics routing */
-  errorCategory?: string;
+  errorCategory: string;
+  /** Whether the operation can be retried */
+  retryable: boolean;
   /** Per-field validation error details */
   details?: ErrorFieldDetail[];
+  /** Cause chain (non-production only) */
+  cause?: { code?: string; message: string }[];
 }
 
 /**

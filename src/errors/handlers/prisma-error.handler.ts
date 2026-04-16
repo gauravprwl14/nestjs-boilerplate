@@ -6,14 +6,17 @@ import {
   PrismaClientUnknownRequestError,
 } from '@prisma/client/runtime/client';
 import { ErrorException } from '../types/error-exception';
-import { ErrorCodeKey } from '../error-codes';
+import { ErrorCodeDefinition } from '../interfaces/error.interfaces';
+import { DAT } from '../error-codes/database.errors';
+import { VAL } from '../error-codes/validation.errors';
+import { SRV } from '../error-codes/server.errors';
 
 /**
  * Metadata attached to a Prisma error map entry.
  */
 interface PrismaErrorMapEntry {
-  /** ERROR_CODES dot-notation key to use for the ErrorException */
-  key: ErrorCodeKey;
+  /** ErrorCodeDefinition to use for the ErrorException */
+  definition: ErrorCodeDefinition;
   /** Generate a human-readable message from the Prisma error meta */
   message: (meta?: Record<string, unknown>) => string;
 }
@@ -27,7 +30,7 @@ interface PrismaErrorMapEntry {
 export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   /** Unique constraint failed */
   P2002: {
-    key: 'DAT.UNIQUE_VIOLATION',
+    definition: DAT.UNIQUE_VIOLATION,
     message: (meta) => {
       const target = Array.isArray(meta?.['target'])
         ? (meta['target'] as string[]).join(', ')
@@ -37,7 +40,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   },
   /** Foreign key constraint failed */
   P2003: {
-    key: 'DAT.FOREIGN_KEY_VIOLATION',
+    definition: DAT.FOREIGN_KEY_VIOLATION,
     message: (meta) => {
       const field = (meta?.['field_name'] as string | undefined) ?? 'unknown field';
       return `Foreign key constraint violation on: ${field}`;
@@ -45,7 +48,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   },
   /** Record not found */
   P2025: {
-    key: 'DAT.NOT_FOUND',
+    definition: DAT.NOT_FOUND,
     message: (meta) => {
       const cause = (meta?.['cause'] as string | undefined) ?? 'Record not found';
       return cause;
@@ -53,7 +56,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   },
   /** A required value was not provided */
   P2011: {
-    key: 'VAL.REQUIRED_FIELD',
+    definition: VAL.REQUIRED_FIELD,
     message: (meta) => {
       const constraint = (meta?.['constraint'] as string | undefined) ?? 'unknown field';
       return `Null constraint violation on: ${constraint}`;
@@ -61,7 +64,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   },
   /** The provided value for the column is too long */
   P2000: {
-    key: 'VAL.FIELD_TOO_LONG',
+    definition: VAL.FIELD_TOO_LONG,
     message: (meta) => {
       const column = (meta?.['column_name'] as string | undefined) ?? 'unknown column';
       return `Value too long for column: ${column}`;
@@ -91,6 +94,8 @@ export function isPrismaError(error: unknown): boolean {
  * Returns `undefined` if the supplied value is not a recognised Prisma error,
  * allowing callers to fall through to other error handling logic.
  *
+ * Always preserves the original Prisma error as `cause` in the chain.
+ *
  * @param error - The unknown error to inspect
  * @returns An ErrorException if the error is a Prisma error, otherwise undefined
  */
@@ -99,22 +104,21 @@ export function handlePrismaError(error: unknown): ErrorException | undefined {
   if (error instanceof PrismaClientKnownRequestError) {
     const entry = PRISMA_ERROR_MAP[error.code];
     if (entry) {
-      return ErrorException.fromCode(entry.key, {
+      return new ErrorException(entry.definition, {
         message: entry.message(error.meta),
         cause: error,
       });
     }
     // Unmapped known code — fall back to generic query failure
-    return ErrorException.fromCode('DAT.QUERY_FAILED', {
+    return new ErrorException(DAT.QUERY_FAILED, {
       message: `Database error [${error.code}]: ${error.message}`,
       cause: error,
-      isOperational: false,
     });
   }
 
   // PrismaClientValidationError — invalid query shape
   if (error instanceof PrismaClientValidationError) {
-    return ErrorException.fromCode('VAL.INVALID_INPUT', {
+    return new ErrorException(VAL.INVALID_INPUT, {
       message: 'Invalid database query',
       cause: error,
     });
@@ -122,28 +126,25 @@ export function handlePrismaError(error: unknown): ErrorException | undefined {
 
   // PrismaClientInitializationError — cannot connect / initialise
   if (error instanceof PrismaClientInitializationError) {
-    return ErrorException.fromCode('DAT.CONNECTION_FAILED', {
+    return new ErrorException(DAT.CONNECTION_FAILED, {
       message: 'Database initialisation failed',
       cause: error,
-      isOperational: false,
     });
   }
 
   // PrismaClientRustPanicError — unrecoverable engine crash
   if (error instanceof PrismaClientRustPanicError) {
-    return ErrorException.fromCode('SRV.INTERNAL_ERROR', {
+    return new ErrorException(SRV.INTERNAL_ERROR, {
       message: 'Database engine crash',
       cause: error,
-      isOperational: false,
     });
   }
 
   // PrismaClientUnknownRequestError — unknown engine-level error
   if (error instanceof PrismaClientUnknownRequestError) {
-    return ErrorException.fromCode('DAT.QUERY_FAILED', {
+    return new ErrorException(DAT.QUERY_FAILED, {
       message: 'Unknown database error',
       cause: error,
-      isOperational: false,
     });
   }
 
