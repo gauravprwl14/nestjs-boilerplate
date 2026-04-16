@@ -31,7 +31,7 @@ Provide the module name (singular, e.g., "comment", "notification").
 
 3. **Service** — Inject repository and logger:
    - CRUD methods with ownership verification
-   - Use `ErrorFactory.notFound()` for missing resources
+   - Use `ErrorException.notFound()` for missing resources
    - Use `AppLogger.logEvent()` for business events
 
 4. **Controller** — Use decorators:

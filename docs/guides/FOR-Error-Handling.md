@@ -9,9 +9,9 @@
 Every API client needs a predictable error format to build reliable UIs and automated integrations.
 The error handling system guarantees:
 - Every error returns the same JSON shape with a machine-readable `code`.
-- Internal errors (bugs, infra failures) have their messages masked so stack traces never reach clients.
-- Prisma constraint violations are automatically translated to meaningful error codes.
-- All errors are logged with full context (traceId, requestId, stack) for debugging.
+- Non-userFacing errors (bugs, infra failures) have their messages masked so internal details never reach clients.
+- Prisma constraint violations are automatically translated to meaningful error codes with original errors preserved in the cause chain.
+- All errors are logged with full context (traceId, requestId, stack, cause chain) for debugging.
 
 ---
 
@@ -21,9 +21,13 @@ See `docs/diagrams/error-handling-flow.md` for the full mermaid flowchart.
 
 ```
 throw (anywhere in app)
-  → PrismaExceptionFilter  (if Prisma error — map to AppError)
-  → AllExceptionsFilter    (always runs — map to structured response)
-  → { success: false, error: { code, message, details?, requestId, traceId } }
+  -> AllExceptionsFilter.normalise()
+     -> If ErrorException: pass through
+     -> If Prisma error: handlePrismaError() -> ErrorException (with cause)
+     -> If HttpException: findDefinitionByStatus() -> ErrorException (with cause)
+     -> Otherwise: ErrorException.wrap()
+  -> errorException.toResponse(isDevelopment)
+  -> { success: false, errors: [{ code, message, errorType, errorCategory, retryable, details?, cause? }] }
 ```
 
 ---
@@ -33,53 +37,69 @@ throw (anywhere in app)
 ```
 src/errors/
 ├── types/
-│   ├── app-error.ts         # AppError class — extends HttpException
-│   └── error-factory.ts     # ErrorFactory — convenience constructors for all domain errors
+│   └── error-exception.ts       # ErrorException class — extends Error (NOT HttpException)
 ├── error-codes/
-│   └── index.ts             # Re-exports ERROR_CODES from common/constants
+│   ├── general.errors.ts        # GEN domain constants
+│   ├── validation.errors.ts     # VAL domain constants
+│   ├── auth.errors.ts           # AUT domain constants
+│   ├── authorization.errors.ts  # AUZ domain constants
+│   ├── database.errors.ts       # DAT domain constants
+│   ├── server.errors.ts         # SRV domain constants
+│   └── index.ts                 # Re-exports all domain constants + merged ERROR_CODES
+├── interfaces/
+│   └── error.interfaces.ts      # ErrorCodeDefinition, ErrorFieldDetail, enums
 └── handlers/
-    └── prisma-error.handler.ts  # Maps Prisma error codes to AppError instances
+    └── prisma-error.handler.ts  # Maps Prisma error codes to ErrorException instances
 
 src/common/
-├── constants/
-│   └── error-codes.ts       # SOURCE OF TRUTH — all ERROR_CODES registry
 ├── filters/
-│   ├── all-exceptions.filter.ts    # @Catch() — catches everything
-│   └── prisma-exception.filter.ts  # @Catch(PrismaClientKnownRequestError)
+│   └── all-exceptions.filter.ts # @Catch() — catches everything, thin filter
 └── interfaces/
-    └── api-response.interface.ts   # ApiResponse<T>, ApiErrorDetail shapes
+    └── api-response.interface.ts # ApiErrorResponse, ApiErrorDetail shapes
 ```
 
 ---
 
 ## 4. Key Methods
 
-### AppError
+### ErrorException
 
 | Method/Property | Purpose |
 |-----------------|---------|
-| `AppError.fromCode(key, overrides?)` | Create AppError from ERROR_CODES registry entry |
-| `AppError.wrap(unknown)` | Wrap any unknown error; returns AppError as-is or wraps as SRV0001 |
-| `AppError.isAppError(val)` | Type guard |
+| `new ErrorException(definition, options?)` | Create from an error code definition directly |
+| `ErrorException.notFound(resource, id?)` | Static helper — DAT.NOT_FOUND with formatted message |
+| `ErrorException.validation(zodError)` | Static helper — converts Zod issues to field details |
+| `ErrorException.validationFromCV(cvErrors)` | Static helper — converts class-validator errors |
+| `ErrorException.internal(cause?)` | Static helper — SRV.INTERNAL_ERROR with cause |
+| `ErrorException.wrap(unknown)` | Wrap any unknown error; returns ErrorException as-is or wraps as SRV0001 |
+| `ErrorException.isErrorException(val)` | Type guard |
+| `error.toResponse(includeChain?)` | Returns response object; masks non-userFacing messages |
 | `error.toLog()` | Returns plain object with full context for logging |
-| `error.toResponse(requestId?, traceId?)` | Returns `ApiErrorDetail` for HTTP response |
-| `error.isOperational` | `true` = expected error; `false` = message masked in response |
+| `error.definition` | Full ErrorCodeDefinition — single source of truth |
+| `error.cause` | Original error preserved in cause chain |
 
-### ErrorFactory
+### Domain Constants
 
-| Method | Error Code | Status |
-|--------|-----------|--------|
-| `notFound(resource, id?)` | `DAT0001` | 404 |
-| `conflict(message)` | `DAT0002` | 409 |
-| `uniqueViolation(field)` | `DAT0003` | 409 |
-| `validation(message?, details?)` | `VAL0001` | 400 |
-| `invalidStatusTransition(from, to)` | `VAL0004` | 400 |
-| `invalidCredentials()` | `AUT0006` | 401 |
-| `tokenExpired()` | `AUT0002` | 401 |
-| `tokenInvalid()` | `AUT0003` | 401 |
-| `authorization(message?)` | `AUZ0001` | 403 |
-| `internal(cause?)` | `SRV0001` | 500 |
-| `fromZodErrors(zodError)` | `VAL0001` | 400 |
+```typescript
+import { AUT, DAT, VAL, GEN, AUZ, SRV } from '@errors/error-codes';
+```
+
+| Constant | Error Code | Status | Common Usage |
+|----------|-----------|--------|--------------|
+| `DAT.NOT_FOUND` | `DAT0001` | 404 | Resource not found |
+| `DAT.CONFLICT` | `DAT0002` | 409 | Resource conflict |
+| `DAT.UNIQUE_VIOLATION` | `DAT0003` | 409 | Unique constraint |
+| `VAL.INVALID_INPUT` | `VAL0001` | 400 | Validation failure |
+| `VAL.INVALID_STATUS_TRANSITION` | `VAL0004` | 400 | Status transition |
+| `AUT.UNAUTHENTICATED` | `AUT0001` | 401 | No credentials |
+| `AUT.INVALID_CREDENTIALS` | `AUT0006` | 401 | Wrong credentials |
+| `AUT.TOKEN_EXPIRED` | `AUT0002` | 401 | Token expired |
+| `AUT.TOKEN_INVALID` | `AUT0003` | 401 | Malformed token |
+| `AUZ.FORBIDDEN` | `AUZ0001` | 403 | Access denied |
+| `AUZ.INSUFFICIENT_PERMISSIONS` | `AUZ0002` | 403 | Missing permissions |
+| `GEN.REQUEST_TIMEOUT` | `GEN0002` | 408 | Timeout |
+| `GEN.RATE_LIMITED` | `GEN0001` | 429 | Rate limit |
+| `SRV.INTERNAL_ERROR` | `SRV0001` | 500 | Unexpected error |
 
 ---
 
@@ -87,20 +107,25 @@ src/common/
 
 ### Adding a New Error Code
 
-1. Open `src/common/constants/error-codes.ts`.
-2. Choose the prefix group and next available number.
-3. Add: `PREFIX####: { code: 'PREFIX####', message: '...', statusCode: NNN }`.
+1. Open the appropriate domain file in `src/errors/error-codes/`.
+2. Pick the next available 4-digit number in that prefix range.
+3. Add the entry with all `ErrorCodeDefinition` fields (code, message, httpStatus, errorType, errorCategory, messageKey, severity, retryable, userFacing).
 4. Run the code reviewer agent (`.claude/agents/code-reviewer.md`) to verify uniqueness.
-5. Add a factory method in `ErrorFactory` if it will be reused.
 
 ### Prisma Error Mapping
 
-| Prisma Code | Mapped To |
-|-------------|-----------|
-| `P2002` (unique) | `DAT0003` |
-| `P2025` (record not found) | `DAT0001` |
-| `P2003` (foreign key) | `DAT0004` |
-| Other | `DAT0007` |
+| Prisma Code | Mapped To | Cause Preserved |
+|-------------|-----------|-----------------|
+| `P2002` (unique) | `DAT0003` | Yes |
+| `P2025` (record not found) | `DAT0001` | Yes |
+| `P2003` (foreign key) | `DAT0004` | Yes |
+| `P2011` (null constraint) | `VAL0002` | Yes |
+| `P2000` (value too long) | `VAL0003` | Yes |
+| Other known | `DAT0007` | Yes |
+| Validation error | `VAL0001` | Yes |
+| Init error | `DAT0006` | Yes |
+| Rust panic | `SRV0001` | Yes |
+| Unknown request | `DAT0007` | Yes |
 
 ---
 
@@ -109,8 +134,7 @@ src/common/
 No environment variables control error handling behaviour directly.
 Error verbosity is controlled by:
 - `LOG_LEVEL` — determines whether debug/trace logs are emitted for caught errors.
-- `NODE_ENV=production` — non-operational errors always mask messages regardless of this.
+- `NODE_ENV=production` — cause chain is excluded from API responses in production.
 
-The `isOperational` flag on `AppError` is the primary switch.
-`ErrorFactory.internal()` always sets `isOperational: false`.
-All other `ErrorFactory` methods set `isOperational: true`.
+Message masking is controlled by the `userFacing` flag on `ErrorCodeDefinition`.
+If `userFacing: false` (e.g. `SRV.INTERNAL_ERROR`, `DAT.QUERY_FAILED`), the response message is replaced with the generic "Internal server error" message regardless of environment.

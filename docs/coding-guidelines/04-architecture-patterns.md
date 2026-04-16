@@ -49,7 +49,7 @@ export class TodoListsController {
 ## Service Rules
 
 - Contain all business logic: ownership checks, status transition validation, side effects.
-- Throw `AppError` (via `ErrorFactory`) — never throw raw `Error`.
+- Throw `ErrorException` with domain constants (`DAT`, `VAL`, `AUT`, etc.) — never throw raw `Error`.
 - Use `@Trace()` on public methods that benefit from distributed tracing.
 - Do **not** call Prisma directly — use a repository or `PrismaService` only for atomic transactions.
 
@@ -63,7 +63,7 @@ export class TodoListsService {
 
   /**
    * Creates a new todo list owned by the given user.
-   * @throws {AppError} DAT0001 if the user does not exist
+   * @throws {ErrorException} DAT0001 if the user does not exist
    */
   @Trace('todo-lists.create')
   async create(userId: string, dto: CreateTodoListDto): Promise<TodoList> {
@@ -97,12 +97,15 @@ export class TodoListRepository extends BaseRepository {
 
 ## Error Propagation
 
-Always use `ErrorFactory` for domain errors. Never construct `AppError` directly unless you have a code not covered by `ErrorFactory`.
+Always use `ErrorException` with domain constants for errors. Import definitions from `@errors/error-codes`.
 
 ```typescript
 // Good
 const list = await this.repo.findByIdAndUser(id, userId);
-if (!list) throw ErrorFactory.notFound('TodoList', id);
+if (!list) throw ErrorException.notFound('TodoList', id);
+
+// Also good — direct definition usage
+throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, { message: `Cannot go from '${from}' to '${to}'` });
 
 // Bad — no context, no structured code
 throw new Error('not found');

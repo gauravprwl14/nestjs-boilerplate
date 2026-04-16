@@ -13,11 +13,11 @@ Use this checklist before opening a pull request.
 
 ## Error Handling
 
-- [ ] All domain errors thrown via `ErrorFactory` methods
+- [ ] All domain errors thrown via `new ErrorException(DEFINITION)` or static helpers
 - [ ] No raw `new Error()` or `new HttpException()` in service/controller code
-- [ ] New error codes added to `src/common/constants/error-codes.ts` with unique code
+- [ ] New error codes added to the appropriate domain file in `src/errors/error-codes/`
 - [ ] Error codes follow prefix + 4-digit format and are unique (use `.claude/agents/code-reviewer.md` to verify)
-- [ ] Non-operational errors (internal/infra) have `isOperational: false`
+- [ ] Non-userFacing definitions (e.g. `SRV.INTERNAL_ERROR`) used for internal errors
 
 ## Database
 

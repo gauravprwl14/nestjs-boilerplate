@@ -18,10 +18,10 @@ src/
 │   ├── middleware/            # RequestId, SecurityHeaders
 │   └── pipes/                 # ZodValidationPipe, ParseUuidPipe
 ├── database/                  # PrismaService, PrismaModule, BaseRepository
-├── errors/                    # AppError, ErrorFactory, error-codes re-export
-│   ├── error-codes/           # Re-exports from common/constants/error-codes.ts
-│   ├── handlers/              # prisma-error.handler.ts (Prisma → AppError mapping)
-│   └── types/                 # app-error.ts, error-factory.ts
+├── errors/                    # ErrorException, domain error-code constants, Prisma error handler
+│   ├── error-codes/           # Domain constants: GEN, VAL, AUT, AUZ, DAT, SRV
+│   ├── handlers/              # prisma-error.handler.ts (Prisma -> ErrorException mapping)
+│   └── types/                 # error-exception.ts
 ├── logger/                    # AppLogger, logger interfaces, sanitizer util
 ├── telemetry/                 # OTel SDK init, TelemetryService, decorators
 │   └── decorators/            # @Trace, @InstrumentClass, @IncrementCounter, @RecordDuration

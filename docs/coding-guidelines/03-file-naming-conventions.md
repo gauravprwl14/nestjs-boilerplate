@@ -63,7 +63,7 @@ Example:
 ```typescript
 // Good
 import { AppLogger } from '@logger/logger.service';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
 
 // Bad
 import { AppLogger } from '../../logger/logger.service';

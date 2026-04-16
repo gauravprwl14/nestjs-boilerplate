@@ -5,10 +5,10 @@ You are a senior code reviewer for the AI-native NestJS boilerplate. Review pull
 ## Review Checklist
 
 ### Error Handling
-- [ ] All errors use `ErrorFactory` methods, not `new AppError()` directly
-- [ ] Error codes are unique — check `src/common/constants/error-codes.ts` for duplicates
+- [ ] All errors use `new ErrorException(DEFINITION)` or static helpers — never raw `new Error()` or `new HttpException()`
+- [ ] Error codes are unique — check `src/errors/error-codes/` domain files for duplicates
 - [ ] New error scenarios have new error codes (never reuse)
-- [ ] Prisma errors are caught by `PrismaExceptionFilter` or `withPrismaErrorHandling()`
+- [ ] Prisma errors are caught by `AllExceptionsFilter` (via `handlePrismaError`) or `withPrismaErrorHandling()`
 
 ### Dependency Injection
 - [ ] Same-module dependencies in `providers` array

@@ -18,7 +18,7 @@ src/
 ├── config/                # Zod-validated env config; AppConfigService
 ├── common/                # Cross-cutting: filters, middleware, interceptors, decorators, pipes, constants
 ├── database/              # PrismaService, PrismaModule, BaseRepository
-├── errors/                # AppError, ErrorFactory, error-code registry, Prisma error handler
+├── errors/                # ErrorException, domain error-code constants (GEN/VAL/AUT/AUZ/DAT/SRV), Prisma error handler
 ├── logger/                # AppLogger (Pino-backed), logger interfaces, sanitizer, trace-context util
 ├── telemetry/             # OTel SDK init, TelemetryService, @Trace/@InstrumentClass decorators
 ├── queue/                 # BullMQ QueueModule (Redis-backed)
@@ -77,25 +77,30 @@ src/
 
 ## Error System
 
-Errors are represented as `ErrorException` instances (extends `HttpException`).
+Errors are represented as `ErrorException` instances (extends `Error`, NOT `HttpException`).
+Domain error constants (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`) are the API — no string keys or factory class.
 
 **Creating errors:**
 ```typescript
-// Preferred — semantic factory methods
-throw ErrorFactory.notFound('User', userId);
-throw ErrorFactory.validation('Bad input', [{ field: 'email', message: '...' }]);
+import { AUT, DAT, VAL, GEN } from '@errors/error-codes';
+import { ErrorException } from '@errors/types/error-exception';
 
-// Direct — from dot-notation code key
-throw ErrorException.fromCode('DAT.NOT_FOUND', { message: 'User not found' });
+// Direct usage — most cases
+throw new ErrorException(AUT.UNAUTHENTICATED);
+throw new ErrorException(DAT.NOT_FOUND, { message: `User ${id} not found` });
+throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, { message: `Cannot go from ${from} to ${to}` });
 
-// Zod parse result
-if (!result.success) throw ErrorFactory.fromZodErrors(result.error);
+// Static helpers for common parameterized patterns
+throw ErrorException.notFound('User', id);
+throw ErrorException.validation(zodError);       // converts Zod issues
+throw ErrorException.validationFromCV(cvErrors);  // converts class-validator
+throw ErrorException.internal(cause);
 ```
 
 **Catching errors:**
 ```typescript
 if (ErrorException.isErrorException(err)) {
-  return err.toResponse(); // Safe, masks non-operational messages
+  return err.toResponse(); // Safe, masks non-userFacing messages
 }
 const safe = ErrorException.wrap(unknownErr); // Always returns an ErrorException
 ```
@@ -103,7 +108,7 @@ const safe = ErrorException.wrap(unknownErr); // Always returns an ErrorExceptio
 **Error code format:** `PREFIX` (3 uppercase letters) + 4-digit zero-padded number.
 Prefix registry: `GEN` (general), `VAL` (validation), `AUT` (authentication), `AUZ` (authorization), `DAT` (database/data), `SRV` (server/infrastructure).
 
-**Non-operational errors** (`isOperational: false`) have messages masked in API responses to prevent leaking internal details. Always pass `isOperational: false` for unexpected infrastructure failures.
+**Message masking:** `userFacing` on the error definition controls whether the message is shown to end users. If `userFacing: false` (e.g. `SRV.INTERNAL_ERROR`), the filter masks the message to prevent leaking internal details. There is no separate `isOperational` flag.
 
 ---
 

@@ -113,7 +113,7 @@ Always use `async/await`. Never use raw `.then()/.catch()` chains in service or 
 // Good
 async findOne(id: string): Promise<TodoList> {
   const list = await this.prisma.todoList.findUnique({ where: { id } });
-  if (!list) throw ErrorFactory.notFound('TodoList', id);
+  if (!list) throw ErrorException.notFound('TodoList', id);
   return list;
 }
 
