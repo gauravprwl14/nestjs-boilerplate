@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AppConfigService } from '@config/config.service';
 import { AppLogger } from '@logger/logger.service';
+import { initLoggerDelegation } from '@logger/logger.delegate';
 import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
 import { TransformInterceptor } from '@common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from '@common/interceptors/logging.interceptor';
@@ -36,7 +37,11 @@ async function bootstrap(): Promise<void> {
   const config = app.get(AppConfigService);
   const logger = app.get(AppLogger);
 
+  // Set AppLogger as the NestJS application logger (standard log/warn/error/debug routing)
   app.useLogger(logger);
+  // Enable custom methods (logEvent, logError, addSpanAttributes) on all Logger instances
+  // via prototype delegation — any `new Logger(context)` in services gets these methods
+  initLoggerDelegation(logger);
   logger.setContext('Bootstrap');
 
   // Global prefix is just 'api' — no version here.

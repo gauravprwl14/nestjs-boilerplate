@@ -1,14 +1,18 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { TODO_QUEUE } from '@/queue/queue.module';
-import { AppLogger } from '@logger/logger.service';
+// Import the type augmentation so TypeScript sees logEvent/logError on Logger
+import '@logger/logger.d';
 
+/**
+ * BullMQ processor for todo-related background jobs.
+ * Demonstrates using NestJS's native Logger with custom methods
+ * (logEvent, logError) via the logger delegation pattern.
+ */
 @Processor(TODO_QUEUE)
 export class TodoItemsProcessor extends WorkerHost {
-  constructor(private readonly logger: AppLogger) {
-    super();
-    this.logger.setContext(TodoItemsProcessor.name);
-  }
+  private readonly logger = new Logger(TodoItemsProcessor.name);
 
   async process(job: Job<{ todoItemId: string; type: string }>): Promise<void> {
     this.logger.logEvent('todo.job.processing', {
@@ -17,7 +21,6 @@ export class TodoItemsProcessor extends WorkerHost {
 
     switch (job.data.type) {
       case 'overdue-check':
-        // Placeholder for overdue notification logic
         this.logger.logEvent('todo.overdue.checked', {
           attributes: { todoItemId: job.data.todoItemId },
         });

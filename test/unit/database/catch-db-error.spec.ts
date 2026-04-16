@@ -5,7 +5,10 @@ import { ErrorException } from '@errors/types/error-exception';
 /**
  * Helper to create a PrismaClientKnownRequestError with a specific code.
  */
-function makePrismaError(code: string, meta?: Record<string, unknown>): PrismaClientKnownRequestError {
+function makePrismaError(
+  code: string,
+  meta?: Record<string, unknown>,
+): PrismaClientKnownRequestError {
   return new PrismaClientKnownRequestError('Prisma error', {
     code,
     clientVersion: '5.0.0',
