@@ -16,3 +16,6 @@ prisma/*.db-journal
 *.log
 logs/
 docker-compose.override.yml
+
+# Git worktrees
+.worktrees/
