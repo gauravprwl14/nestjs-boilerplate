@@ -15,7 +15,7 @@ it('should return 404 when todo list does not exist', async () => {
   const act = () => service.findOne(userId, listId);
 
   // Assert
-  await expect(act()).rejects.toThrow(AppError);
+  await expect(act()).rejects.toThrow(ErrorException);
   await expect(act()).rejects.toMatchObject({ code: 'DAT0001' });
 });
 ```
@@ -26,8 +26,8 @@ it('should return 404 when todo list does not exist', async () => {
 describe('TodoListsService')          ← class name
   describe('findOne')                  ← method name
     it('should return the list when found and owned by user')
-    it('should throw DAT0001 when list does not exist')
-    it('should throw DAT0001 when list belongs to another user')
+    it('should throw ErrorException(DAT.NOT_FOUND) when list does not exist')
+    it('should throw ErrorException(DAT.NOT_FOUND) when list belongs to another user')
 ```
 
 ## Mock Factories
@@ -58,10 +58,7 @@ import { createPrismaMock } from 'test/helpers/prisma.mock';
 const prismaMock = createPrismaMock();
 
 const module = await Test.createTestingModule({
-  providers: [
-    TodoListsService,
-    { provide: PrismaService, useValue: prismaMock },
-  ],
+  providers: [TodoListsService, { provide: PrismaService, useValue: prismaMock }],
 }).compile();
 ```
 
@@ -124,12 +121,12 @@ describe('TodoLists (e2e)', () => {
 
 ## Coverage Requirements
 
-| File type | Minimum line coverage |
-|-----------|-----------------------|
-| `*.service.ts` | 80% |
-| `*.repository.ts` | 80% |
-| `*.controller.ts` | 60% (covered by e2e) |
-| `*.filter.ts` | 80% |
-| `*.guard.ts` | 80% |
+| File type         | Minimum line coverage |
+| ----------------- | --------------------- |
+| `*.service.ts`    | 80%                   |
+| `*.repository.ts` | 80%                   |
+| `*.controller.ts` | 60% (covered by e2e)  |
+| `*.filter.ts`     | 80%                   |
+| `*.guard.ts`      | 80%                   |
 
 Run coverage: `npm run test:cov`

@@ -41,24 +41,24 @@ graph TD
 
 Global modules are registered once in `AppModule` and inject into any module without explicit import:
 
-| Module | Provides |
-|--------|----------|
+| Module            | Provides           |
+| ----------------- | ------------------ |
 | `AppConfigModule` | `AppConfigService` |
-| `AppLoggerModule` | `AppLogger` |
-| `PrismaModule` | `PrismaService` |
+| `AppLoggerModule` | `AppLogger`        |
+| `PrismaModule`    | `PrismaService`    |
 | `TelemetryModule` | `TelemetryService` |
 
 ## Module Responsibilities
 
-| Module | Controller(s) | Service(s) | Key Providers |
-|--------|---------------|------------|---------------|
-| `AuthModule` | `AuthController`, `ApiKeysController` | `AuthService`, `ApiKeysService` | `JwtModule`, `JwtStrategy`, `ApiKeyStrategy`, `JwtAuthGuard` (global) |
-| `UsersModule` | `UsersController` | `UsersService` | — |
-| `TodoListsModule` | `TodoListsController` | `TodoListsService` | `TodoListRepository` |
-| `TodoItemsModule` | `TodoItemsController` | `TodoItemsService` | `TodoItemRepository`, `TodoItemProcessor` (BullMQ) |
-| `TagsModule` | `TagsController` | `TagsService` | — |
-| `HealthModule` | `HealthController` | — | `TerminusModule` |
-| `QueueModule` | — | — | `BullModule` (Redis connection) |
+| Module            | Controller(s)                         | Service(s)                      | Key Providers                                                         |
+| ----------------- | ------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `AuthModule`      | `AuthController`, `ApiKeysController` | `AuthService`, `ApiKeysService` | `JwtModule`, `JwtStrategy`, `ApiKeyStrategy`, `JwtAuthGuard` (global) |
+| `UsersModule`     | `UsersController`                     | `UsersService`                  | —                                                                     |
+| `TodoListsModule` | `TodoListsController`                 | `TodoListsService`              | `TodoListRepository`                                                  |
+| `TodoItemsModule` | `TodoItemsController`                 | `TodoItemsService`              | `TodoItemRepository`, `TodoItemProcessor` (BullMQ)                    |
+| `TagsModule`      | `TagsController`                      | `TagsService`                   | —                                                                     |
+| `HealthModule`    | `HealthController`                    | —                               | `TerminusModule`                                                      |
+| `QueueModule`     | —                                     | —                               | `BullModule` (Redis connection)                                       |
 
 ## Middleware & Cross-Cutting Pipeline
 
@@ -77,8 +77,11 @@ Response
 ```
 
 Exception path:
+
 ```
 Thrown error
-  → PrismaExceptionFilter      (Prisma errors → AppError)
-  → AllExceptionsFilter        (AppError → structured JSON response)
+  → AllExceptionsFilter        (catches everything; thin filter)
+     → handlePrismaError()     (maps Prisma errors → ErrorException with cause)
+     → ErrorException.wrap()   (wraps unknown errors as SRV0001)
+  → errorException.toResponse(includeChain) → structured JSON response
 ```

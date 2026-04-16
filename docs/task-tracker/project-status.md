@@ -1,10 +1,11 @@
 # Project Status
 
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## Milestone Checklist
 
 ### Foundation
+
 - [x] NestJS 11 project scaffold with Express adapter
 - [x] Zod environment validation (`src/config/schemas/env.schema.ts`)
 - [x] AppConfigModule (global, Zod-validated)
@@ -16,6 +17,7 @@ Last updated: 2026-04-15
 - [x] Graceful shutdown (`bootstrap/graceful-shutdown.ts`)
 
 ### Authentication
+
 - [x] JWT strategy (access + refresh rotation)
 - [x] API Key strategy (hashed, bcrypt comparison)
 - [x] Global `JwtAuthGuard` with `@Public()` bypass
@@ -28,11 +30,13 @@ Last updated: 2026-04-15
 - [x] `DELETE /auth/api-keys/:id` — revoke
 
 ### Users
+
 - [x] `GET /users/me`
 - [x] `PATCH /users/me`
 - [x] `SafeUser` type (passwordHash excluded)
 
 ### Todo Domain
+
 - [x] `POST /todo-lists`
 - [x] `GET /todo-lists`
 - [x] `GET /todo-lists/:id`
@@ -50,6 +54,7 @@ Last updated: 2026-04-15
 - [x] BullMQ processor for todo-item-completed event
 
 ### Telemetry & Observability
+
 - [x] OpenTelemetry SDK init (`src/telemetry/otel-sdk.ts`)
 - [x] `@Trace()` decorator
 - [x] `@InstrumentClass()` decorator
@@ -60,14 +65,16 @@ Last updated: 2026-04-15
 - [x] Pre-provisioned Grafana datasources
 
 ### Error Handling
-- [x] `AppError` class with `code`, `statusCode`, `isOperational`, `details`
-- [x] `ErrorFactory` with all domain-specific factory methods
-- [x] Error code registry (`src/common/constants/error-codes.ts`)
-- [x] `AllExceptionsFilter`
-- [x] `PrismaExceptionFilter`
-- [x] Prisma error handler (P2002, P2025, P2003 mapped)
+
+- [x] `ErrorException` class (extends `Error`) with `definition`, `code`, `statusCode`, `details`, `cause`
+- [x] Static helpers: `notFound()`, `validation()`, `validationFromCV()`, `internal()`, `wrap()`
+- [x] Domain error constants per file in `src/errors/error-codes/` (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`)
+- [x] `AllExceptionsFilter` (thin — delegates to `ErrorException.toResponse()`)
+- [x] Prisma error handler in filter pipeline (P2002, P2003, P2011, P2025, P2000 mapped; cause preserved)
+- [x] Cause chain support in responses (non-prod) and logs
 
 ### Documentation (Plan 5)
+
 - [x] `CLAUDE.md` — root AI router
 - [x] `PLOT.md` — project vision and planning
 - [x] `docs/CONTEXT.md` + all subfolder CONTEXT.md files
@@ -78,16 +85,17 @@ Last updated: 2026-04-15
 - [x] `docs/infrastructure/` (4 files)
 - [x] `docs/plans/template.md`
 - [x] `docs/assumptions/technical-assumptions.md`
-- [x] `docs/guides/` (4 FOR-*.md files)
+- [x] `docs/guides/` (4 FOR-\*.md files)
 - [x] `.claude/` (settings, agents, skills)
 
 ### Testing
+
 - [ ] Unit tests for `AuthService`
 - [ ] Unit tests for `TodoListsService`
 - [ ] Unit tests for `TodoItemsService`
 - [ ] Unit tests for `TagsService`
 - [ ] Unit tests for `AllExceptionsFilter`
-- [ ] Unit tests for `PrismaExceptionFilter`
+- [ ] Unit tests for `handlePrismaError`
 - [ ] E2E tests for all 24 endpoints
 - [ ] Test helpers: `createPrismaMock()`, mock factories for all entities
 - [ ] CI pipeline (GitHub Actions: lint → type-check → test → build)

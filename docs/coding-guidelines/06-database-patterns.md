@@ -24,7 +24,9 @@ await this.prisma.todoList.delete({ where: { id } });
 Every `findUnique`, `findFirst`, and `findMany` on soft-deletable tables **must** include:
 
 ```typescript
-where: { deletedAt: null }
+where: {
+  deletedAt: null;
+}
 ```
 
 Use `BaseRepository.findActiveById()` for the common case to avoid forgetting this filter.
@@ -37,7 +39,7 @@ Before any mutation, verify the record belongs to the requesting user. Combine t
 const list = await this.prisma.todoList.findFirst({
   where: { id, userId, deletedAt: null },
 });
-if (!list) throw ErrorFactory.notFound('TodoList', id);
+if (!list) throw ErrorException.notFound('TodoList', id);
 ```
 
 ## Transactions
@@ -45,7 +47,7 @@ if (!list) throw ErrorFactory.notFound('TodoList', id);
 Use `prisma.$transaction()` when multiple writes must succeed atomically:
 
 ```typescript
-await this.prisma.$transaction(async (tx) => {
+await this.prisma.$transaction(async tx => {
   await tx.refreshToken.updateMany({
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
