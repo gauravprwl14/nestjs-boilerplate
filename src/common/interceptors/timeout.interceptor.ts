@@ -7,6 +7,7 @@ import {
 import { Observable, throwError, TimeoutError } from 'rxjs';
 import { catchError, timeout } from 'rxjs/operators';
 import { ErrorException } from '@errors/types/error-exception';
+import { GEN } from '@errors/error-codes';
 import { DEFAULT_REQUEST_TIMEOUT_MS } from '@common/constants/app.constants';
 
 /**
@@ -22,7 +23,7 @@ export class TimeoutInterceptor implements NestInterceptor {
       timeout(DEFAULT_REQUEST_TIMEOUT_MS),
       catchError((error: unknown) => {
         if (error instanceof TimeoutError) {
-          return throwError(() => ErrorException.fromCode('GEN.REQUEST_TIMEOUT'));
+          return throwError(() => new ErrorException(GEN.REQUEST_TIMEOUT));
         }
         return throwError(() => error);
       }),

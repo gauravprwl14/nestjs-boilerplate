@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { UsersRepository } from './users.repository';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
 
 /** User object without the passwordHash field */
 export type SafeUser = Omit<User, 'passwordHash'>;
@@ -23,7 +23,7 @@ export class UsersService {
     const user = await this.usersRepository.findUnique({ id: userId });
 
     if (!user || user.deletedAt) {
-      throw ErrorFactory.notFound('User', userId);
+      throw ErrorException.notFound('User', userId);
     }
 
     const { passwordHash: _, ...safeUser } = user;
@@ -40,7 +40,7 @@ export class UsersService {
     const user = await this.usersRepository.findUnique({ id: userId });
 
     if (!user || user.deletedAt) {
-      throw ErrorFactory.notFound('User', userId);
+      throw ErrorException.notFound('User', userId);
     }
 
     const updated = await this.usersRepository.update({ id: userId }, {

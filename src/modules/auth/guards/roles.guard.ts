@@ -1,7 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '@common/constants';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT, AUZ } from '@errors/error-codes';
 
 /**
  * Guard that enforces role-based access control.
@@ -28,11 +29,11 @@ export class RolesGuard implements CanActivate {
     const user = request.user;
 
     if (!user) {
-      throw ErrorFactory.authentication();
+      throw new ErrorException(AUT.UNAUTHENTICATED);
     }
 
     if (!requiredRoles.includes(user.role)) {
-      throw ErrorFactory.insufficientPermissions();
+      throw new ErrorException(AUZ.INSUFFICIENT_PERMISSIONS);
     }
 
     return true;

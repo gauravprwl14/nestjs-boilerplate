@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { ApiKey, ApiKeyStatus } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { API_KEY_PREFIX_LENGTH } from '@common/constants';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 /** Publicly visible fields of an API key (no raw key) */
@@ -99,7 +99,7 @@ export class ApiKeysService {
     });
 
     if (!apiKey) {
-      throw ErrorFactory.notFound('ApiKey', keyId);
+      throw ErrorException.notFound('ApiKey', keyId);
     }
 
     await this.prisma.apiKey.update({

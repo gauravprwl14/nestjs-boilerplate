@@ -4,7 +4,8 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
 import { UsersRepository } from '@modules/users/users.repository';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT } from '@errors/error-codes';
 
 /** Shape of the JWT access token payload */
 export interface JwtPayload {
@@ -44,21 +45,21 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    */
   async validate(payload: JwtPayload): Promise<User> {
     if (payload.type !== 'access') {
-      throw ErrorFactory.tokenInvalid();
+      throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
     const user = await this.usersRepository.findUnique({ id: payload.sub });
 
     if (!user || user.deletedAt) {
-      throw ErrorFactory.tokenInvalid();
+      throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      throw ErrorFactory.accountSuspended();
+      throw new ErrorException(AUT.ACCOUNT_SUSPENDED);
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw ErrorFactory.accountLocked();
+      throw new ErrorException(AUT.ACCOUNT_LOCKED);
     }
 
     return user;

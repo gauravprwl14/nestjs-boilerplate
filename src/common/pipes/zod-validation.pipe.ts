@@ -1,6 +1,6 @@
 import { Injectable, PipeTransform, ArgumentMetadata } from '@nestjs/common';
 import { ZodSchema } from 'zod';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
 
 /**
  * Pipe that validates incoming data against a Zod schema.
@@ -21,7 +21,7 @@ export class ZodValidationPipe implements PipeTransform {
     const result = this.schema.safeParse(value);
 
     if (!result.success) {
-      throw ErrorFactory.fromZodErrors(result.error);
+      throw ErrorException.validation(result.error);
     }
 
     return result.data;

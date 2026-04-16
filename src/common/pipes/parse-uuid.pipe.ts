@@ -1,5 +1,6 @@
 import { Injectable, PipeTransform, ArgumentMetadata } from '@nestjs/common';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { VAL } from '@errors/error-codes';
 
 /** UUID v4 regex pattern */
 const UUID_V4_REGEX =
@@ -21,9 +22,10 @@ export class ParseUuidPipe implements PipeTransform<string, string> {
   transform(value: string, metadata: ArgumentMetadata): string {
     if (!UUID_V4_REGEX.test(value)) {
       const field = metadata.data ?? 'id';
-      throw ErrorFactory.validation(`Invalid UUID v4 for parameter '${field}'`, [
-        { field, message: 'Must be a valid UUID v4' },
-      ]);
+      throw new ErrorException(VAL.INVALID_INPUT, {
+        message: `Invalid UUID v4 for parameter '${field}'`,
+        details: [{ field, message: 'Must be a valid UUID v4' }],
+      });
     }
 
     return value;

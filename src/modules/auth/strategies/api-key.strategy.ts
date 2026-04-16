@@ -6,7 +6,8 @@ import * as crypto from 'crypto';
 import { User, ApiKeyStatus } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { API_KEY_HEADER } from '@common/constants';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT } from '@errors/error-codes';
 
 /**
  * Passport strategy for validating API Key authentication.
@@ -31,7 +32,7 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
     const rawKey = request.headers[API_KEY_HEADER] as string | undefined;
 
     if (!rawKey) {
-      throw ErrorFactory.authentication('API key is missing');
+      throw new ErrorException(AUT.UNAUTHENTICATED, { message: 'API key is missing' });
     }
 
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
@@ -42,15 +43,15 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
     });
 
     if (!apiKey) {
-      throw ErrorFactory.authentication('Invalid API key');
+      throw new ErrorException(AUT.UNAUTHENTICATED, { message: 'Invalid API key' });
     }
 
     if (apiKey.status !== ApiKeyStatus.ACTIVE) {
-      throw ErrorFactory.authentication('API key has been revoked');
+      throw new ErrorException(AUT.UNAUTHENTICATED, { message: 'API key has been revoked' });
     }
 
     if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-      throw ErrorFactory.authentication('API key has expired');
+      throw new ErrorException(AUT.UNAUTHENTICATED, { message: 'API key has expired' });
     }
 
     // Update lastUsedAt asynchronously — do not await to avoid blocking

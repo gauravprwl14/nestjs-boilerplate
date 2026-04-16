@@ -2,7 +2,8 @@ import { ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '@common/constants';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT } from '@errors/error-codes';
 
 /**
  * JWT authentication guard.
@@ -42,10 +43,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       const infoMessage = info instanceof Error ? info.message : String(info ?? '');
 
       if (infoMessage.toLowerCase().includes('expired')) {
-        throw ErrorFactory.tokenExpired();
+        throw new ErrorException(AUT.TOKEN_EXPIRED);
       }
 
-      throw ErrorFactory.tokenInvalid();
+      throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
     return user;

@@ -10,7 +10,8 @@ import { QueryTodoItemsDto } from './dto/query-todo-items.dto';
 import { VALID_STATUS_TRANSITIONS } from './todo-status.constants';
 import { TODO_QUEUE } from '@/queue/queue.module';
 import { PaginatedResult } from '@common/interfaces';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { VAL } from '@errors/error-codes';
 
 /**
  * Service for todo item business logic, including status transitions and queue jobs.
@@ -90,7 +91,7 @@ export class TodoItemsService {
     });
 
     if (!item) {
-      throw ErrorFactory.notFound('TodoItem', id);
+      throw ErrorException.notFound('TodoItem', id);
     }
 
     return item;
@@ -105,7 +106,9 @@ export class TodoItemsService {
     if (dto.status && dto.status !== item.status) {
       const allowed = VALID_STATUS_TRANSITIONS[item.status] ?? [];
       if (!allowed.includes(dto.status)) {
-        throw ErrorFactory.invalidStatusTransition(item.status, dto.status);
+        throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, {
+          message: `Cannot transition from '${item.status}' to '${dto.status}'`,
+        });
       }
     }
 

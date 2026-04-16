@@ -4,7 +4,7 @@ import { TodoListsRepository } from './todo-lists.repository';
 import { CreateTodoListDto } from './dto/create-todo-list.dto';
 import { UpdateTodoListDto } from './dto/update-todo-list.dto';
 import { PaginationParams, PaginatedResult } from '@common/interfaces';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
 
 /**
  * Service for todo list business logic.
@@ -42,7 +42,7 @@ export class TodoListsService {
     });
 
     if (!list) {
-      throw ErrorFactory.notFound('TodoList', id);
+      throw ErrorException.notFound('TodoList', id);
     }
 
     return list;

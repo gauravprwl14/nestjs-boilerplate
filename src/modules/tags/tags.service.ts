@@ -4,7 +4,8 @@ import { PrismaService } from '@database/prisma.service';
 import { TagsRepository } from './tags.repository';
 import { TodoItemsService } from '@modules/todo-items/todo-items.service';
 import { CreateTagDto } from './dto/create-tag.dto';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { DAT } from '@errors/error-codes';
 
 /**
  * Service for tag business logic, including assigning/removing tags from items.
@@ -23,7 +24,10 @@ export class TagsService {
   async create(dto: CreateTagDto): Promise<Tag> {
     const existing = await this.tagsRepository.findFirst({ name: dto.name });
     if (existing) {
-      throw ErrorFactory.uniqueViolation('name');
+      throw new ErrorException(DAT.UNIQUE_VIOLATION, {
+        message: 'Unique constraint violation on field: name',
+        details: [{ field: 'name', message: 'Value already exists' }],
+      });
     }
 
     return this.tagsRepository.create({
@@ -47,7 +51,7 @@ export class TagsService {
 
     const tag = await this.tagsRepository.findUnique({ id: tagId });
     if (!tag) {
-      throw ErrorFactory.notFound('Tag', tagId);
+      throw ErrorException.notFound('Tag', tagId);
     }
 
     return this.prisma.todoItemTag.create({

@@ -6,7 +6,8 @@ import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
 import { PrismaService } from '@database/prisma.service';
 import { UsersRepository } from '@modules/users/users.repository';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT, DAT } from '@errors/error-codes';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -53,7 +54,10 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<AuthResult> {
     const existing = await this.usersRepository.findByEmail(dto.email);
     if (existing) {
-      throw ErrorFactory.uniqueViolation('email');
+      throw new ErrorException(DAT.UNIQUE_VIOLATION, {
+        message: 'Email already exists',
+        details: [{ field: 'email', message: 'Already registered' }],
+      });
     }
 
     const passwordHash = await this.hashPassword(dto.password);
@@ -83,15 +87,15 @@ export class AuthService {
     const user = await this.usersRepository.findByEmail(dto.email);
 
     if (!user) {
-      throw ErrorFactory.invalidCredentials();
+      throw new ErrorException(AUT.INVALID_CREDENTIALS);
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      throw ErrorFactory.accountSuspended();
+      throw new ErrorException(AUT.ACCOUNT_SUSPENDED);
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw ErrorFactory.accountLocked();
+      throw new ErrorException(AUT.ACCOUNT_LOCKED);
     }
 
     const passwordValid = await this.comparePassword(dto.password, user.passwordHash);
@@ -108,7 +112,7 @@ export class AuthService {
           { failedLoginCount: newFailedCount, lockedUntil },
         );
 
-        throw ErrorFactory.accountLocked();
+        throw new ErrorException(AUT.ACCOUNT_LOCKED);
       }
 
       await this.usersRepository.update(
@@ -116,7 +120,7 @@ export class AuthService {
         { failedLoginCount: newFailedCount },
       );
 
-      throw ErrorFactory.invalidCredentials();
+      throw new ErrorException(AUT.INVALID_CREDENTIALS);
     }
 
     // Reset failed login count on success
@@ -146,15 +150,15 @@ export class AuthService {
     });
 
     if (!refreshToken) {
-      throw ErrorFactory.tokenInvalid();
+      throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
     if (refreshToken.revokedAt) {
-      throw ErrorFactory.tokenInvalid();
+      throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
     if (refreshToken.expiresAt < new Date()) {
-      throw ErrorFactory.tokenExpired();
+      throw new ErrorException(AUT.TOKEN_EXPIRED);
     }
 
     // Revoke old token (rotation)
@@ -177,12 +181,12 @@ export class AuthService {
     const user = await this.usersRepository.findUnique({ id: userId });
 
     if (!user) {
-      throw ErrorFactory.notFound('User', userId);
+      throw ErrorException.notFound('User', userId);
     }
 
     const isValid = await this.comparePassword(dto.currentPassword, user.passwordHash);
     if (!isValid) {
-      throw ErrorFactory.invalidCredentials();
+      throw new ErrorException(AUT.INVALID_CREDENTIALS);
     }
 
     const newHash = await this.hashPassword(dto.newPassword);

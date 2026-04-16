@@ -2,7 +2,8 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '@common/constants';
-import { ErrorFactory } from '@errors/types/error-factory';
+import { ErrorException } from '@errors/types/error-exception';
+import { AUT } from '@errors/error-codes';
 
 /**
  * Combined authentication guard that tries JWT first, then falls back to API key.
@@ -45,6 +46,6 @@ export class CombinedAuthGuard implements CanActivate {
       // API key also failed
     }
 
-    throw ErrorFactory.authentication();
+    throw new ErrorException(AUT.UNAUTHENTICATED);
   }
 }
