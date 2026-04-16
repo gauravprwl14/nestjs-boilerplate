@@ -41,7 +41,12 @@ Classify changed files:
 
 ### Step 2: Read the actual code diffs
 
-For each changed code file, run `git diff HEAD -- <path>` to see what changed semantically. Understand:
+For each changed code file, run git diff to see what changed semantically. Use the same diff mode as Step 1:
+
+- If no `--branch` argument: `git diff HEAD -- <path>`
+- If `--branch <name>` argument: `git diff <name>...HEAD -- <path>`
+
+Understand:
 - Additions: new functions, classes, modules, error codes, endpoints
 - Deletions: removed code
 - Modifications: changed signatures, behaviors, names
