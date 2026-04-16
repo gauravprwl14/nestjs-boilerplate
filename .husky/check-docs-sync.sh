@@ -12,7 +12,7 @@ if [ "${SKIP_DOC_CHECK:-0}" = "1" ]; then
 fi
 
 # Escape hatch 2: commit message bypass flag
-COMMIT_MSG_FILE=".git/COMMIT_EDITMSG"
+COMMIT_MSG_FILE="$(git rev-parse --git-dir)/COMMIT_EDITMSG"
 if [ -f "$COMMIT_MSG_FILE" ] && grep -q "\[skip-doc-check\]" "$COMMIT_MSG_FILE" 2>/dev/null; then
   exit 0
 fi
