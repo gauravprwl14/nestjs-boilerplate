@@ -11,15 +11,17 @@ const prisma = new PrismaClient({ adapter });
  * scenario table at the end so reviewers can spot-check without reading code.
  */
 async function main() {
-  console.log('\nSeeding Enterprise Twitter…\n');
+  // ── Idempotence guard ────────────────────────────────────────────────────
+  // Skip if any seed data exists. To force re-seed, truncate tables first
+  // (e.g. `podman compose exec postgres psql -U postgres -d enterprise_twitter_dev -c
+  //  "TRUNCATE company, department, \"user\", user_department, tweet, tweet_department CASCADE"`).
+  const existing = await prisma.company.count();
+  if (existing > 0) {
+    console.log(`\n✓ Seed: ${existing} companies already present — skipping.\n`);
+    return;
+  }
 
-  // ── Wipe (idempotent re-seed) ────────────────────────────────────────────
-  await prisma.tweetDepartment.deleteMany({});
-  await prisma.tweet.deleteMany({});
-  await prisma.userDepartment.deleteMany({});
-  await prisma.user.deleteMany({});
-  await prisma.department.deleteMany({});
-  await prisma.company.deleteMany({});
+  console.log('\nSeeding Enterprise Twitter…\n');
 
   // ── Companies ────────────────────────────────────────────────────────────
   const acme = await prisma.company.create({ data: { name: 'Acme Corp' } });
@@ -133,12 +135,9 @@ async function main() {
   const dave = await makeUser(acme.id, 'Dave (API Engineer)', 'dave@acme.test', [
     acmeEngBackendApi.id,
   ]);
-  const eva = await makeUser(
-    acme.id,
-    'Eva (Auth Engineer — deep 4-level)',
-    'eva@acme.test',
-    [acmeEngBackendApiAuth.id],
-  );
+  const eva = await makeUser(acme.id, 'Eva (Auth Engineer — deep 4-level)', 'eva@acme.test', [
+    acmeEngBackendApiAuth.id,
+  ]);
   const fiona = await makeUser(acme.id, 'Fiona (Frontend)', 'fiona@acme.test', [
     acmeEngFrontend.id,
   ]);
@@ -148,12 +147,10 @@ async function main() {
   const harold = await makeUser(acme.id, 'Harold (Sales — East)', 'harold@acme.test', [
     acmeSalesEast.id,
   ]);
-  const ivan = await makeUser(
-    acme.id,
-    'Ivan (Multi-dept — Sales + Exec)',
-    'ivan@acme.test',
-    [acmeSales.id, acmeExec.id],
-  );
+  const ivan = await makeUser(acme.id, 'Ivan (Multi-dept — Sales + Exec)', 'ivan@acme.test', [
+    acmeSales.id,
+    acmeExec.id,
+  ]);
   const nora = await makeUser(acme.id, 'Nora (No dept — lone user)', 'nora@acme.test', []);
 
   // ── Globex users ─────────────────────────────────────────────────────────
@@ -251,13 +248,9 @@ async function main() {
     'Initech all-hands: stapler policy clarification.',
   );
   // Initech: DEPARTMENTS to Biz — should NOT be visible to Tina in Eng
-  await makeTweet(
-    initech.id,
-    umar.id,
-    'DEPARTMENTS',
-    'Biz team: Q4 pipeline review Thursday.',
-    [initechBiz.id],
-  );
+  await makeTweet(initech.id, umar.id, 'DEPARTMENTS', 'Biz team: Q4 pipeline review Thursday.', [
+    initechBiz.id,
+  ]);
 
   // ── Print user table ─────────────────────────────────────────────────────
   const line = '─'.repeat(118);
@@ -285,9 +278,7 @@ async function main() {
     { u: umar, company: 'Initech', dept: 'Business' },
   ];
   for (const { u, company, dept } of userRows) {
-    console.log(
-      `  ${u.name.padEnd(42)} | ${company.padEnd(8)} | ${dept.padEnd(42)} | ${u.id}`,
-    );
+    console.log(`  ${u.name.padEnd(42)} | ${company.padEnd(8)} | ${dept.padEnd(42)} | ${u.id}`);
   }
 
   // ── Print dept id table (handy for POST /tweets with departmentIds) ─────
@@ -375,7 +366,7 @@ main()
   .then(async () => {
     await prisma.$disconnect();
   })
-  .catch(async (e) => {
+  .catch(async e => {
     console.error(e);
     await prisma.$disconnect();
     process.exit(1);
