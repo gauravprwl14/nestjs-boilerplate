@@ -1,5 +1,14 @@
+import { RequestMethod } from '@nestjs/common';
 import { Params } from 'nestjs-pino';
 import { REDACT_PATHS, REDACT_CENSOR } from './logger.constants';
+
+/**
+ * Route matcher for the pino-http middleware. nestjs-pino defaults to
+ * `{ path: '*', method: ALL }`, which NestJS 11 + Express 5 + path-to-regexp
+ * v8 flag as legacy (`Unsupported route path: "/api/*"` warning). The
+ * named-wildcard form below is the v8 equivalent and suppresses the warning.
+ */
+const PINO_FOR_ROUTES: Params['forRoutes'] = [{ path: '{*splat}', method: RequestMethod.ALL }];
 
 /**
  * Options for the Pino config factory.
@@ -24,6 +33,7 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
 
   if (isDevelopment) {
     return {
+      forRoutes: PINO_FOR_ROUTES,
       pinoHttp: {
         level: logLevel,
         transport: {
@@ -40,11 +50,7 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
           censor: REDACT_CENSOR,
         },
         serializers: {
-          req(req: {
-            method: string;
-            url: string;
-            headers: Record<string, string>;
-          }) {
+          req(req: { method: string; url: string; headers: Record<string, string> }) {
             return {
               method: req.method,
               url: req.url,
@@ -70,6 +76,7 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
 
   // Production: structured JSON
   return {
+    forRoutes: PINO_FOR_ROUTES,
     pinoHttp: {
       level: logLevel,
       redact: {
@@ -92,11 +99,7 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
         },
       },
       serializers: {
-        req(req: {
-          method: string;
-          url: string;
-          headers: Record<string, string>;
-        }) {
+        req(req: { method: string; url: string; headers: Record<string, string> }) {
           return {
             method: req.method,
             url: req.url,
