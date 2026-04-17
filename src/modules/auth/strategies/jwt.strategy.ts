@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
-import { UsersRepository } from '@modules/users/users.repository';
+import { UsersDbService } from '@database/users/users.db-service';
 import { ErrorException } from '@errors/types/error-exception';
 import { AUT } from '@errors/error-codes';
 
@@ -27,7 +27,7 @@ export interface JwtPayload {
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     private readonly config: AppConfigService,
-    private readonly usersRepository: UsersRepository,
+    private readonly usersDb: UsersDbService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -48,7 +48,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new ErrorException(AUT.TOKEN_INVALID);
     }
 
-    const user = await this.usersRepository.findUnique({ id: payload.sub });
+    const user = await this.usersDb.findById(payload.sub);
 
     if (!user || user.deletedAt) {
       throw new ErrorException(AUT.TOKEN_INVALID);

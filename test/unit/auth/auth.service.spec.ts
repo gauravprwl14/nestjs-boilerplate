@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '@modules/auth/auth.service';
-import { UsersRepository } from '@modules/users/users.repository';
+import { UsersDbService } from '@database/users/users.db-service';
 import { PrismaService } from '@database/prisma.service';
 import { AppConfigService } from '@config/config.service';
 import { createMockPrisma } from '../../helpers/mock-prisma';
@@ -11,17 +11,15 @@ import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 import * as bcrypt from 'bcrypt';
 
-const createMockUsersRepository = () => ({
-  findByEmail: jest.fn(),
-  findUnique: jest.fn(),
+const createMockUsersDbService = () => ({
+  findActiveByEmail: jest.fn(),
+  findById: jest.fn(),
   findActiveById: jest.fn(),
   create: jest.fn(),
-  update: jest.fn(),
-  delete: jest.fn(),
-  softDelete: jest.fn(),
-  findFirst: jest.fn(),
-  findMany: jest.fn(),
-  count: jest.fn(),
+  updateProfile: jest.fn(),
+  updatePassword: jest.fn(),
+  recordFailedLogin: jest.fn(),
+  resetFailedLogin: jest.fn(),
 });
 
 const createMockJwtService = () => ({
@@ -34,13 +32,13 @@ describe('AuthService', () => {
   let service: AuthService;
   let mockPrisma: ReturnType<typeof createMockPrisma>;
   let mockConfig: ReturnType<typeof createMockConfig>;
-  let mockUsersRepo: ReturnType<typeof createMockUsersRepository>;
+  let mockUsersDb: ReturnType<typeof createMockUsersDbService>;
   let mockJwtService: ReturnType<typeof createMockJwtService>;
 
   beforeEach(async () => {
     mockPrisma = createMockPrisma();
     mockConfig = createMockConfig();
-    mockUsersRepo = createMockUsersRepository();
+    mockUsersDb = createMockUsersDbService();
     mockJwtService = createMockJwtService();
 
     // Set up default mock for refreshToken.create (needed for generateTokens)
@@ -59,7 +57,7 @@ describe('AuthService', () => {
         { provide: AppConfigService, useValue: mockConfig },
         { provide: JwtService, useValue: mockJwtService },
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: UsersRepository, useValue: mockUsersRepo },
+        { provide: UsersDbService, useValue: mockUsersDb },
       ],
     }).compile();
 
@@ -77,8 +75,8 @@ describe('AuthService', () => {
       };
       const mockUser = createTestUser({ email: dto.email, firstName: dto.firstName });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(null);
-      mockUsersRepo.create.mockResolvedValue(mockUser);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(null);
+      mockUsersDb.create.mockResolvedValue(mockUser);
 
       // --- ACT ---
       const result = await service.register(dto);
@@ -89,7 +87,7 @@ describe('AuthService', () => {
       expect(result.tokens.accessToken).toBeDefined();
       expect(result.tokens.refreshToken).toBeDefined();
       expect(result.user).not.toHaveProperty('passwordHash');
-      expect(mockUsersRepo.create).toHaveBeenCalled();
+      expect(mockUsersDb.create).toHaveBeenCalled();
     });
 
     it('should throw uniqueViolation (DAT0003) when email already exists', async () => {
@@ -102,7 +100,7 @@ describe('AuthService', () => {
       };
       const existingUser = createTestUser({ email: dto.email });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(existingUser);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(existingUser);
 
       // --- ACT & ASSERT ---
       await expect(service.register(dto)).rejects.toBeInstanceOf(ErrorException);
@@ -121,7 +119,7 @@ describe('AuthService', () => {
       const dto = { email: faker.internet.email(), password };
       const mockUser = createTestUser({ email: dto.email, passwordHash, failedLoginCount: 0 });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(mockUser);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(mockUser);
 
       // --- ACT ---
       const result = await service.login(dto);
@@ -144,8 +142,8 @@ describe('AuthService', () => {
         status: 'ACTIVE',
       });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(mockUser);
-      mockUsersRepo.update.mockResolvedValue({ ...mockUser, failedLoginCount: 1 });
+      mockUsersDb.findActiveByEmail.mockResolvedValue(mockUser);
+      mockUsersDb.recordFailedLogin.mockResolvedValue({ ...mockUser, failedLoginCount: 1 });
 
       // --- ACT & ASSERT ---
       await expect(service.login(dto)).rejects.toMatchObject({
@@ -156,7 +154,7 @@ describe('AuthService', () => {
     it('should throw invalidCredentials when user not found', async () => {
       // --- ARRANGE ---
       const dto = { email: faker.internet.email(), password: 'SomePass123!' };
-      mockUsersRepo.findByEmail.mockResolvedValue(null);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.login(dto)).rejects.toMatchObject({
@@ -177,8 +175,8 @@ describe('AuthService', () => {
         lockedUntil: null,
       });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(mockUser);
-      mockUsersRepo.update.mockResolvedValue({
+      mockUsersDb.findActiveByEmail.mockResolvedValue(mockUser);
+      mockUsersDb.recordFailedLogin.mockResolvedValue({
         ...mockUser,
         failedLoginCount: 5,
         lockedUntil: new Date(Date.now() + 1800000),
@@ -188,8 +186,8 @@ describe('AuthService', () => {
       await expect(service.login(dto)).rejects.toMatchObject({
         code: 'AUT0005', // account locked
       });
-      expect(mockUsersRepo.update).toHaveBeenCalledWith(
-        { id: mockUser.id },
+      expect(mockUsersDb.recordFailedLogin).toHaveBeenCalledWith(
+        mockUser.id,
         expect.objectContaining({ lockedUntil: expect.any(Date) }),
       );
     });
@@ -199,7 +197,7 @@ describe('AuthService', () => {
       const dto = { email: faker.internet.email(), password: 'SomePass123!' };
       const mockUser = createTestUser({ email: dto.email, status: 'SUSPENDED' });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(mockUser);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(mockUser);
 
       // --- ACT & ASSERT ---
       await expect(service.login(dto)).rejects.toMatchObject({
@@ -213,7 +211,7 @@ describe('AuthService', () => {
       const lockedUntil = new Date(Date.now() + 1800000); // 30 minutes from now
       const mockUser = createTestUser({ email: dto.email, lockedUntil, status: 'ACTIVE' });
 
-      mockUsersRepo.findByEmail.mockResolvedValue(mockUser);
+      mockUsersDb.findActiveByEmail.mockResolvedValue(mockUser);
 
       // --- ACT & ASSERT ---
       await expect(service.login(dto)).rejects.toMatchObject({
@@ -236,7 +234,10 @@ describe('AuthService', () => {
       };
 
       mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken);
-      mockPrisma.refreshToken.update.mockResolvedValue({ ...mockRefreshToken, revokedAt: new Date() });
+      mockPrisma.refreshToken.update.mockResolvedValue({
+        ...mockRefreshToken,
+        revokedAt: new Date(),
+      });
 
       // --- ACT ---
       const result = await service.refreshTokens('valid-refresh-token');
@@ -308,18 +309,15 @@ describe('AuthService', () => {
       const mockUser = createTestUser({ id: userId, passwordHash });
       const dto = { currentPassword, newPassword };
 
-      mockUsersRepo.findUnique.mockResolvedValue(mockUser);
-      mockUsersRepo.update.mockResolvedValue({ ...mockUser });
+      mockUsersDb.findById.mockResolvedValue(mockUser);
+      mockUsersDb.updatePassword.mockResolvedValue({ ...mockUser });
       mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
 
       // --- ACT ---
       await service.changePassword(userId, dto);
 
       // --- ASSERT ---
-      expect(mockUsersRepo.update).toHaveBeenCalledWith(
-        { id: userId },
-        expect.objectContaining({ passwordHash: expect.any(String) }),
-      );
+      expect(mockUsersDb.updatePassword).toHaveBeenCalledWith(userId, expect.any(String));
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId, revokedAt: null },
@@ -336,7 +334,7 @@ describe('AuthService', () => {
       const mockUser = createTestUser({ id: userId, passwordHash });
       const dto = { currentPassword: 'WrongPass!', newPassword: 'NewPass456!' };
 
-      mockUsersRepo.findUnique.mockResolvedValue(mockUser);
+      mockUsersDb.findById.mockResolvedValue(mockUser);
 
       // --- ACT & ASSERT ---
       await expect(service.changePassword(userId, dto)).rejects.toMatchObject({
@@ -349,7 +347,7 @@ describe('AuthService', () => {
       const userId = faker.string.uuid();
       const dto = { currentPassword: 'OldPass!', newPassword: 'NewPass!' };
 
-      mockUsersRepo.findUnique.mockResolvedValue(null);
+      mockUsersDb.findById.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.changePassword(userId, dto)).rejects.toMatchObject({
