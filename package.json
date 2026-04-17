@@ -83,6 +83,7 @@
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
+    "@prisma/instrumentation": "^7.7.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.73.5",
     "cache-manager": "^7.2.8",

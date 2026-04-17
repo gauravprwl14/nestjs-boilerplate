@@ -17,6 +17,7 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PrismaInstrumentation } from '@prisma/instrumentation';
 import {
   OTEL_DEFAULT_GRPC_ENDPOINT,
   OTEL_IGNORE_PATHS,
@@ -107,6 +108,13 @@ export function initOtelSdk(config: OtelConfig): void {
           enabled: true,
         },
       }),
+      // Prisma instrumentation: emits client-level spans (query, operation,
+      // serialize, engine connection) so DB latency is visible in Tempo.
+      // Prisma 7 emits engine spans natively; the v7 `@prisma/instrumentation`
+      // config only accepts `ignoreSpanTypes` — the legacy `middleware` flag
+      // is no longer needed (tracing preview has also been enabled in
+      // schema.prisma for forward compatibility).
+      new PrismaInstrumentation(),
     ],
   });
 
