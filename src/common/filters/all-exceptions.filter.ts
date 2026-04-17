@@ -3,6 +3,7 @@ import {
   Catch,
   ExceptionFilter,
   HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -48,7 +49,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Log at appropriate level based on HTTP status:
     // 5xx -> ERROR (logError), 4xx -> WARN (log)
-    if (error.statusCode >= 500) {
+    if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.logError('http.error', error, {
         attributes: {
           requestId,
@@ -102,14 +103,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const httpResponse = exception.getResponse();
-      const message =
-        typeof httpResponse === 'string'
-          ? httpResponse
-          : Array.isArray((httpResponse as Record<string, unknown>)?.message)
-            ? ((httpResponse as Record<string, unknown>).message as string[]).join(', ')
-            : (httpResponse as Record<string, unknown>)?.message
-              ? String((httpResponse as Record<string, unknown>).message)
-              : exception.message;
+      let message = exception.message;
+
+      if (typeof httpResponse === 'string') {
+        message = httpResponse;
+      } else {
+        const responseMessage = (httpResponse as Record<string, unknown>)?.message;
+        if (Array.isArray(responseMessage)) {
+          message = responseMessage.join(', ');
+        } else if (typeof responseMessage === 'string') {
+          message = responseMessage;
+        } else if (typeof responseMessage === 'number' || typeof responseMessage === 'boolean') {
+          message = String(responseMessage);
+        }
+      }
 
       const fallbackDef = findDefinitionByStatus(status);
       return new ErrorException(fallbackDef, { message, cause: exception });
