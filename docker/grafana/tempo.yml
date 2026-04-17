@@ -28,7 +28,7 @@ metrics_generator:
   storage:
     path: /var/tempo/generator/wal
     remote_write:
-      - url: http://prometheus:9090/api/v1/write
+      - url: ${PROMETHEUS_REMOTE_WRITE_URL}
         send_exemplars: true
 
 storage:
@@ -42,4 +42,6 @@ storage:
 overrides:
   defaults:
     metrics_generator:
-      processors: [service-graphs, span-metrics]
+      # local-blocks is required by the Grafana Traces Drilldown app — it powers
+      # the rate/latency/errors TraceQL metrics queries the UI runs.
+      processors: [service-graphs, span-metrics, local-blocks]
