@@ -9,21 +9,22 @@ import { ApiOperation, ApiResponse } from '@nestjs/swagger';
  *
  * @example
  * ```typescript
- * @Get()
+ * @Get('timeline')
  * @ApiEndpoint({
- *   summary: 'Get all todo lists',
+ *   summary: 'Get the caller\'s tweet timeline',
+ *   description: 'Returns tweets visible to the caller based on company and department membership.',
  *   successStatus: HttpStatus.OK,
- *   successDescription: 'Todo lists returned',
- *   errorResponses: [HttpStatus.UNAUTHORIZED, HttpStatus.TOO_MANY_REQUESTS],
+ *   successDescription: 'Timeline returned',
+ *   errorResponses: [HttpStatus.UNAUTHORIZED],
  * })
- * async findAll() {}
+ * async timeline() {}
  *
- * @Post()
+ * @Post('tweets')
  * @ApiEndpoint({
- *   summary: 'Create a todo list',
+ *   summary: 'Create a tweet',
  *   successStatus: HttpStatus.CREATED,
- *   successDescription: 'Todo list created',
- *   errorResponses: [HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED],
+ *   successDescription: 'Tweet created',
+ *   errorResponses: [HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN],
  * })
  * async create() {}
  * ```
