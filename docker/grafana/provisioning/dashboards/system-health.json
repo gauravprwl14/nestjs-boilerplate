@@ -5,7 +5,7 @@
   "tags": ["system", "nodejs", "memory"],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -15,18 +15,18 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Node.js Heap Used",
+      "title": "V8 Heap: Used vs Limit",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "nodejs_heap_size_used_bytes",
+          "expr": "v8js_memory_heap_used_bytes",
           "legendFormat": "Heap Used",
           "refId": "A"
         },
         {
-          "expr": "nodejs_heap_size_total_bytes",
-          "legendFormat": "Heap Total",
+          "expr": "v8js_memory_heap_limit_bytes",
+          "legendFormat": "Heap Limit",
           "refId": "B"
         }
       ],
@@ -44,14 +44,24 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Node.js Event Loop Lag",
+      "title": "Event Loop Delay (p50 / p90 / p99)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "nodejs_eventloop_lag_seconds",
-          "legendFormat": "Event Loop Lag",
+          "expr": "nodejs_eventloop_delay_p50_seconds",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "expr": "nodejs_eventloop_delay_p90_seconds",
+          "legendFormat": "p90",
+          "refId": "B"
+        },
+        {
+          "expr": "nodejs_eventloop_delay_p99_seconds",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
       "fieldConfig": {
@@ -69,49 +79,54 @@
         }
       },
       "options": {
-        "tooltip": { "mode": "single" },
+        "tooltip": { "mode": "multi" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Node.js Active Handles & Requests",
+      "title": "Event Loop Utilisation",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "nodejs_active_handles_total",
-          "legendFormat": "Active Handles",
+          "expr": "nodejs_eventloop_utilization_ratio",
+          "legendFormat": "Utilisation",
           "refId": "A"
-        },
-        {
-          "expr": "nodejs_active_requests_total",
-          "legendFormat": "Active Requests",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "color": { "mode": "palette-classic" }
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red", "value": 0.85 }
+            ]
+          }
         }
       },
       "options": {
-        "tooltip": { "mode": "multi" },
+        "tooltip": { "mode": "single" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Process RSS Memory",
+      "title": "V8 Heap Spaces (physical size)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "process_resident_memory_bytes",
-          "legendFormat": "RSS",
+          "expr": "v8js_memory_heap_space_physical_size_bytes",
+          "legendFormat": "{{heap_space_name}}",
           "refId": "A"
         }
       ],
@@ -122,7 +137,7 @@
         }
       },
       "options": {
-        "tooltip": { "mode": "single" },
+        "tooltip": { "mode": "multi" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
@@ -134,7 +149,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "100 * nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes",
+          "expr": "100 * v8js_memory_heap_used_bytes / v8js_memory_heap_limit_bytes",
           "legendFormat": "",
           "refId": "A"
         }
@@ -164,9 +179,14 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(nodejs_gc_duration_seconds_bucket[1m])) by (le, gc_type))",
-          "legendFormat": "p99 {{gc_type}}",
+          "expr": "histogram_quantile(0.99, sum(rate(v8js_gc_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(v8js_gc_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
