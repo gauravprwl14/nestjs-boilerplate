@@ -1,34 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TodoListsService } from '@modules/todo-lists/todo-lists.service';
-import { TodoListsRepository } from '@modules/todo-lists/todo-lists.repository';
+import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
 import { createTestTodoList } from '../../helpers/factories';
 import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 
-const createMockTodoListsRepository = () => ({
-  create: jest.fn(),
-  findByUserId: jest.fn(),
-  findFirst: jest.fn(),
-  findUnique: jest.fn(),
-  findMany: jest.fn(),
-  update: jest.fn(),
-  delete: jest.fn(),
-  softDelete: jest.fn(),
-  count: jest.fn(),
+const createMockTodoListsDbService = () => ({
+  createForUser: jest.fn(),
+  findActiveByUserId: jest.fn(),
+  findByIdForUser: jest.fn(),
+  updateById: jest.fn(),
+  softDeleteById: jest.fn(),
 });
 
 describe('TodoListsService', () => {
   let service: TodoListsService;
-  let mockRepo: ReturnType<typeof createMockTodoListsRepository>;
+  let mockDb: ReturnType<typeof createMockTodoListsDbService>;
 
   beforeEach(async () => {
-    mockRepo = createMockTodoListsRepository();
+    mockDb = createMockTodoListsDbService();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        TodoListsService,
-        { provide: TodoListsRepository, useValue: mockRepo },
-      ],
+      providers: [TodoListsService, { provide: TodoListsDbService, useValue: mockDb }],
     }).compile();
 
     service = module.get<TodoListsService>(TodoListsService);
@@ -40,18 +33,18 @@ describe('TodoListsService', () => {
       const userId = faker.string.uuid();
       const dto = { title: 'My List', description: 'A description' };
       const mockList = createTestTodoList({ userId, title: dto.title });
-      mockRepo.create.mockResolvedValue(mockList);
+      mockDb.createForUser.mockResolvedValue(mockList);
 
       // --- ACT ---
       const result = await service.create(userId, dto);
 
       // --- ASSERT ---
       expect(result).toEqual(mockList);
-      expect(mockRepo.create).toHaveBeenCalledWith(
+      expect(mockDb.createForUser).toHaveBeenCalledWith(
+        userId,
         expect.objectContaining({
           title: dto.title,
           description: dto.description,
-          user: { connect: { id: userId } },
         }),
       );
     });
@@ -65,16 +58,23 @@ describe('TodoListsService', () => {
       const mockLists = [createTestTodoList({ userId }), createTestTodoList({ userId })];
       const paginatedResult = {
         data: mockLists,
-        meta: { total: 2, page: 1, limit: 10, totalPages: 1, hasNextPage: false, hasPreviousPage: false },
+        meta: {
+          total: 2,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
       };
-      mockRepo.findByUserId.mockResolvedValue(paginatedResult);
+      mockDb.findActiveByUserId.mockResolvedValue(paginatedResult);
 
       // --- ACT ---
       const result = await service.findAll(userId, params);
 
       // --- ASSERT ---
       expect(result).toEqual(paginatedResult);
-      expect(mockRepo.findByUserId).toHaveBeenCalledWith(userId, params);
+      expect(mockDb.findActiveByUserId).toHaveBeenCalledWith(userId, params);
     });
   });
 
@@ -84,21 +84,21 @@ describe('TodoListsService', () => {
       const userId = faker.string.uuid();
       const listId = faker.string.uuid();
       const mockList = createTestTodoList({ id: listId, userId });
-      mockRepo.findFirst.mockResolvedValue(mockList);
+      mockDb.findByIdForUser.mockResolvedValue(mockList);
 
       // --- ACT ---
       const result = await service.findOne(userId, listId);
 
       // --- ASSERT ---
       expect(result).toEqual(mockList);
-      expect(mockRepo.findFirst).toHaveBeenCalledWith({ id: listId, userId, deletedAt: null });
+      expect(mockDb.findByIdForUser).toHaveBeenCalledWith(userId, listId);
     });
 
     it('should throw notFound when list does not exist', async () => {
       // --- ARRANGE ---
       const userId = faker.string.uuid();
       const listId = faker.string.uuid();
-      mockRepo.findFirst.mockResolvedValue(null);
+      mockDb.findByIdForUser.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.findOne(userId, listId)).rejects.toBeInstanceOf(ErrorException);
@@ -112,8 +112,8 @@ describe('TodoListsService', () => {
       // --- ARRANGE ---
       const userId = faker.string.uuid();
       const listId = faker.string.uuid();
-      // repo returns null when userId doesn't match (the findFirst filters by userId)
-      mockRepo.findFirst.mockResolvedValue(null);
+      // repo returns null when userId doesn't match (the findByIdForUser filters by userId)
+      mockDb.findByIdForUser.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.findOne(userId, listId)).rejects.toMatchObject({
@@ -131,15 +131,18 @@ describe('TodoListsService', () => {
       const existingList = createTestTodoList({ id: listId, userId });
       const updatedList = { ...existingList, title: dto.title };
 
-      mockRepo.findFirst.mockResolvedValue(existingList);
-      mockRepo.update.mockResolvedValue(updatedList);
+      mockDb.findByIdForUser.mockResolvedValue(existingList);
+      mockDb.updateById.mockResolvedValue(updatedList);
 
       // --- ACT ---
       const result = await service.update(userId, listId, dto);
 
       // --- ASSERT ---
       expect(result).toEqual(updatedList);
-      expect(mockRepo.update).toHaveBeenCalledWith({ id: listId }, dto);
+      expect(mockDb.updateById).toHaveBeenCalledWith(
+        listId,
+        expect.objectContaining({ title: dto.title }),
+      );
     });
   });
 
@@ -151,15 +154,15 @@ describe('TodoListsService', () => {
       const existingList = createTestTodoList({ id: listId, userId });
       const deletedList = { ...existingList, deletedAt: new Date() };
 
-      mockRepo.findFirst.mockResolvedValue(existingList);
-      mockRepo.softDelete.mockResolvedValue(deletedList);
+      mockDb.findByIdForUser.mockResolvedValue(existingList);
+      mockDb.softDeleteById.mockResolvedValue(deletedList);
 
       // --- ACT ---
       const result = await service.remove(userId, listId);
 
       // --- ASSERT ---
       expect(result.deletedAt).not.toBeNull();
-      expect(mockRepo.softDelete).toHaveBeenCalledWith({ id: listId });
+      expect(mockDb.softDeleteById).toHaveBeenCalledWith(listId);
     });
   });
 });

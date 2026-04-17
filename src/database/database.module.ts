@@ -5,6 +5,8 @@ import { UsersDbRepository } from '@database/users/users.db-repository';
 import { UsersDbService } from '@database/users/users.db-service';
 import { AuthCredentialsDbRepository } from '@database/auth-credentials/auth-credentials.db-repository';
 import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
+import { TodoListsDbRepository } from '@database/todo-lists/todo-lists.db-repository';
+import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
 
 /**
  * Global database module. Aggregates every per-entity DbService + DbRepository
@@ -23,7 +25,9 @@ import { AuthCredentialsDbService } from '@database/auth-credentials/auth-creden
     UsersDbService,
     AuthCredentialsDbRepository,
     AuthCredentialsDbService,
+    TodoListsDbRepository,
+    TodoListsDbService,
   ],
-  exports: [DatabaseService, UsersDbService, AuthCredentialsDbService],
+  exports: [DatabaseService, UsersDbService, AuthCredentialsDbService, TodoListsDbService],
 })
 export class DatabaseModule {}
