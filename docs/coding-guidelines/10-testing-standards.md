@@ -9,7 +9,7 @@ it('should return 404 when todo list does not exist', async () => {
   // Arrange
   const userId = 'user-uuid';
   const listId = 'non-existent-uuid';
-  prismaMock.todoList.findFirst.mockResolvedValue(null);
+  todoListsDbMock.findByIdForUser.mockResolvedValue(null);
 
   // Act
   const act = () => service.findOne(userId, listId);
@@ -48,9 +48,27 @@ export const createTodoListMock = (overrides: Partial<TodoList> = {}): TodoList 
 });
 ```
 
-## PrismaService Mock
+## Mocking the Database Layer
 
-Use the shared Prisma mock from `test/helpers/prisma.mock.ts`:
+Feature services now inject `*DbService` classes (not `PrismaService` directly). Mock at the `*DbService` level:
+
+```typescript
+import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
+
+const todoListsDbMock = {
+  createForUser: jest.fn(),
+  findActiveByUserId: jest.fn(),
+  findByIdForUser: jest.fn(),
+  updateById: jest.fn(),
+  softDeleteById: jest.fn(),
+};
+
+const module = await Test.createTestingModule({
+  providers: [TodoListsService, { provide: TodoListsDbService, useValue: todoListsDbMock }],
+}).compile();
+```
+
+For repository-level unit tests (testing `*DbRepository` directly), use the shared Prisma mock from `test/helpers/prisma.mock.ts`:
 
 ```typescript
 import { createPrismaMock } from 'test/helpers/prisma.mock';
@@ -58,7 +76,7 @@ import { createPrismaMock } from 'test/helpers/prisma.mock';
 const prismaMock = createPrismaMock();
 
 const module = await Test.createTestingModule({
-  providers: [TodoListsService, { provide: PrismaService, useValue: prismaMock }],
+  providers: [TodoListsDbRepository, { provide: PrismaService, useValue: prismaMock }],
 }).compile();
 ```
 
@@ -67,14 +85,21 @@ const module = await Test.createTestingModule({
 ```typescript
 describe('TodoListsService', () => {
   let service: TodoListsService;
-  let prismaMock: ReturnType<typeof createPrismaMock>;
+  let todoListsDbMock: jest.Mocked<TodoListsDbService>;
 
   beforeEach(async () => {
-    prismaMock = createPrismaMock();
+    todoListsDbMock = {
+      createForUser: jest.fn(),
+      findActiveByUserId: jest.fn(),
+      findByIdForUser: jest.fn(),
+      updateById: jest.fn(),
+      softDeleteById: jest.fn(),
+    } as unknown as jest.Mocked<TodoListsDbService>;
+
     const module = await Test.createTestingModule({
       providers: [
         TodoListsService,
-        { provide: PrismaService, useValue: prismaMock },
+        { provide: TodoListsDbService, useValue: todoListsDbMock },
         { provide: AppLogger, useValue: { logEvent: jest.fn(), logError: jest.fn() } },
       ],
     }).compile();
@@ -121,12 +146,14 @@ describe('TodoLists (e2e)', () => {
 
 ## Coverage Requirements
 
-| File type         | Minimum line coverage |
-| ----------------- | --------------------- |
-| `*.service.ts`    | 80%                   |
-| `*.repository.ts` | 80%                   |
-| `*.controller.ts` | 60% (covered by e2e)  |
-| `*.filter.ts`     | 80%                   |
-| `*.guard.ts`      | 80%                   |
+| File type                                | Minimum line coverage |
+| ---------------------------------------- | --------------------- |
+| `*.service.ts`                           | 80%                   |
+| `*.repository.ts` (legacy feature repos) | 80%                   |
+| `*.db-repository.ts`                     | 80%                   |
+| `*.db-service.ts`                        | 80%                   |
+| `*.controller.ts`                        | 60% (covered by e2e)  |
+| `*.filter.ts`                            | 80%                   |
+| `*.guard.ts`                             | 80%                   |
 
 Run coverage: `npm run test:cov`

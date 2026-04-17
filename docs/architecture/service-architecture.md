@@ -1,5 +1,7 @@
 # Service Architecture — NestJS Module Graph
 
+<!-- DOC-SYNC: Diagram updated on 2026-04-17. DatabaseModule added as @Global() node. Please verify visual accuracy before committing. -->
+
 ## Module Import Graph
 
 ```mermaid
@@ -9,6 +11,7 @@ graph TD
     AppConfigModule["AppConfigModule\n@Global — config, env vars"]
     AppLoggerModule["AppLoggerModule\n@Global — AppLogger / Pino"]
     PrismaModule["PrismaModule\n@Global — PrismaService"]
+    DatabaseModule["DatabaseModule\n@Global — DatabaseService\n+ per-aggregate *DbService"]
     TelemetryModule["TelemetryModule\n@Global — TelemetryService"]
     ThrottlerModule["ThrottlerModule\n(rate limiting)"]
     QueueModule["QueueModule\n(BullMQ / Redis)"]
@@ -23,6 +26,7 @@ graph TD
     AppModule --> AppConfigModule
     AppModule --> AppLoggerModule
     AppModule --> PrismaModule
+    AppModule --> DatabaseModule
     AppModule --> TelemetryModule
     AppModule --> ThrottlerModule
     AppModule --> QueueModule
@@ -33,6 +37,7 @@ graph TD
     AppModule --> TodoItemsModule
     AppModule --> TagsModule
 
+    DatabaseModule --> PrismaModule
     AuthModule -.->|"global guard\nJwtAuthGuard"| AppModule
     TodoItemsModule --> QueueModule
 ```
@@ -41,12 +46,13 @@ graph TD
 
 Global modules are registered once in `AppModule` and inject into any module without explicit import:
 
-| Module            | Provides           |
-| ----------------- | ------------------ |
-| `AppConfigModule` | `AppConfigService` |
-| `AppLoggerModule` | `AppLogger`        |
-| `PrismaModule`    | `PrismaService`    |
-| `TelemetryModule` | `TelemetryService` |
+| Module            | Provides                                                                                                               |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `AppConfigModule` | `AppConfigService`                                                                                                     |
+| `AppLoggerModule` | `AppLogger`                                                                                                            |
+| `PrismaModule`    | `PrismaService`                                                                                                        |
+| `DatabaseModule`  | `DatabaseService`, `UsersDbService`, `AuthCredentialsDbService`, `TodoListsDbService` (+ more as aggregates are added) |
+| `TelemetryModule` | `TelemetryService`                                                                                                     |
 
 ## Module Responsibilities
 
@@ -54,11 +60,12 @@ Global modules are registered once in `AppModule` and inject into any module wit
 | ----------------- | ------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
 | `AuthModule`      | `AuthController`, `ApiKeysController` | `AuthService`, `ApiKeysService` | `JwtModule`, `JwtStrategy`, `ApiKeyStrategy`, `JwtAuthGuard` (global) |
 | `UsersModule`     | `UsersController`                     | `UsersService`                  | —                                                                     |
-| `TodoListsModule` | `TodoListsController`                 | `TodoListsService`              | `TodoListRepository`                                                  |
-| `TodoItemsModule` | `TodoItemsController`                 | `TodoItemsService`              | `TodoItemRepository`, `TodoItemProcessor` (BullMQ)                    |
-| `TagsModule`      | `TagsController`                      | `TagsService`                   | —                                                                     |
+| `TodoListsModule` | `TodoListsController`                 | `TodoListsService`              | —                                                                     |
+| `TodoItemsModule` | `TodoItemsController`                 | `TodoItemsService`              | `TodoItemsRepository`, `TodoItemProcessor` (BullMQ)                   |
+| `TagsModule`      | `TagsController`                      | `TagsService`                   | `TagsRepository`                                                      |
 | `HealthModule`    | `HealthController`                    | —                               | `TerminusModule`                                                      |
 | `QueueModule`     | —                                     | —                               | `BullModule` (Redis connection)                                       |
+| `DatabaseModule`  | —                                     | per-aggregate `*DbService`s     | per-aggregate `*DbRepository`s, `DatabaseService`                     |
 
 ## Middleware & Cross-Cutting Pipeline
 

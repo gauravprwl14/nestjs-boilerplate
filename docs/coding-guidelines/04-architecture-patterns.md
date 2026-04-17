@@ -9,12 +9,14 @@ Controller   — receives validated DTOs, calls service, returns response shape
     ↓
 Service      — business logic, ownership checks, status transitions, queue dispatch
     ↓
-Repository   — data access abstraction over Prisma; no business logic
+*DbService   — DB-layer public API; one per aggregate; injected by feature services
+    ↓
+*DbRepository — Prisma calls; extends BaseRepository; no business logic
     ↓
 Prisma       — database query execution
 ```
 
-Each layer has a single responsibility. **Do not skip layers.**
+Each layer has a single responsibility. **Do not skip layers.** Feature services must inject `*DbService` classes from the database layer — they must **not** inject `PrismaService` or `*DbRepository` directly.
 
 ## Controller Rules
 
@@ -51,13 +53,14 @@ export class TodoListsController {
 - Contain all business logic: ownership checks, status transition validation, side effects.
 - Throw `ErrorException` with domain constants (`DAT`, `VAL`, `AUT`, etc.) — never throw raw `Error`.
 - Use `@Trace()` on public methods that benefit from distributed tracing.
-- Do **not** call Prisma directly — use a repository or `PrismaService` only for atomic transactions.
+- Do **not** call Prisma directly — inject the appropriate `*DbService` from the database layer.
+- For cross-aggregate atomic operations inject `DatabaseService` and use `runInTransaction()`.
 
 ```typescript
 @Injectable()
 export class TodoListsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly todoListsDb: TodoListsDbService,
     private readonly logger: AppLogger,
   ) {}
 
@@ -67,30 +70,33 @@ export class TodoListsService {
    */
   @Trace('todo-lists.create')
   async create(userId: string, dto: CreateTodoListDto): Promise<TodoList> {
-    return this.prisma.todoList.create({
-      data: { ...dto, userId },
+    return this.todoListsDb.createForUser(userId, {
+      title: dto.title,
+      description: dto.description,
     });
   }
 }
 ```
 
-## Repository Rules
+## DbRepository Rules
 
-- Wrap Prisma calls in descriptive methods; never expose raw Prisma client to services.
-- Apply soft-delete filter (`deletedAt: null`) in every query by default.
-- Use `BaseRepository` for common patterns (findById, softDelete).
+- Extend `BaseRepository<TModel, …>` and implement `delegateFor(client)` to return the Prisma delegate.
+- Wrap Prisma calls in descriptive named methods; never expose raw Prisma client to services.
+- Apply soft-delete filter (`deletedAt: null`) in every query on soft-deletable models.
+- All methods accept an optional `tx?: DbTransactionClient` as their last parameter.
 
 ```typescript
 @Injectable()
-export class TodoListRepository extends BaseRepository {
+export class TodoListsDbRepository extends BaseRepository<TodoList, …> {
+  protected delegateFor(client: PrismaService | DbTransactionClient) {
+    return client.todoList;
+  }
+
   /**
-   * Finds a todo list by id, scoped to a specific user.
-   * Returns null if not found or not owned by user.
+   * Returns a list scoped to the owning user (null if not found / not owned / deleted).
    */
-  async findByIdAndUser(id: string, userId: string): Promise<TodoList | null> {
-    return this.prisma.todoList.findFirst({
-      where: { id, userId, deletedAt: null },
-    });
+  async findByIdForUser(userId: string, id: string, tx?: DbTransactionClient): Promise<TodoList | null> {
+    return this.client(tx).todoList.findFirst({ where: { id, userId, deletedAt: null } });
   }
 }
 ```
@@ -105,7 +111,9 @@ const list = await this.repo.findByIdAndUser(id, userId);
 if (!list) throw ErrorException.notFound('TodoList', id);
 
 // Also good — direct definition usage
-throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, { message: `Cannot go from '${from}' to '${to}'` });
+throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, {
+  message: `Cannot go from '${from}' to '${to}'`,
+});
 
 // Bad — no context, no structured code
 throw new Error('not found');

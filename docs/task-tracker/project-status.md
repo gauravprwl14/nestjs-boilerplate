@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## Milestone Checklist
 
@@ -11,8 +11,10 @@ Last updated: 2026-04-16
 - [x] AppConfigModule (global, Zod-validated)
 - [x] AppLoggerModule (global, Pino-backed, trace-correlated)
 - [x] PrismaModule (global, `@prisma/adapter-pg` native driver)
+- [x] DatabaseModule (global, per-aggregate DbRepository + DbService, DatabaseService)
 - [x] TelemetryModule (global, OTel SDK)
-- [x] BaseRepository with soft-delete helpers
+- [x] BaseRepository with soft-delete helpers and tx-aware `delegateFor(client)` API
+- [x] Prisma schema relocated to `src/database/prisma/schema.prisma`
 - [x] Common infrastructure (filters, interceptors, middleware, pipes, decorators)
 - [x] Graceful shutdown (`bootstrap/graceful-shutdown.ts`)
 
@@ -100,6 +102,19 @@ Last updated: 2026-04-16
 - [ ] Test helpers: `createPrismaMock()`, mock factories for all entities
 - [ ] CI pipeline (GitHub Actions: lint → type-check → test → build)
 
+### Database Layer Refactor (branch: database-layer-refactor)
+
+- [x] Move Prisma schema to `src/database/prisma/`
+- [x] Relocate `BaseRepository` to `src/database/base.repository.ts`; tx-aware `delegateFor(client)` API
+- [x] Scaffold `DatabaseService` + `DatabaseModule` (`@Global()`)
+- [x] Migrate users aggregate → `UsersDbRepository` + `UsersDbService`
+- [x] Migrate auth-credentials aggregate → `AuthCredentialsDbRepository` + `AuthCredentialsDbService`
+- [x] Migrate todo-lists aggregate → `TodoListsDbRepository` + `TodoListsDbService`
+- [ ] Migrate todo-items aggregate → `TodoItemsDbRepository` + `TodoItemsDbService`
+- [ ] Migrate tags aggregate
+- [ ] Wrap `AuthService.register` in `runInTransaction` + e2e rollback test
+- [ ] Cleanup + doc sync
+
 ## Current Focus
 
-Testing — all feature work is complete. Next action: write unit tests starting with `AuthService`.
+Database layer refactor — migrating remaining aggregates (todo-items, tags) and adding transaction coverage.

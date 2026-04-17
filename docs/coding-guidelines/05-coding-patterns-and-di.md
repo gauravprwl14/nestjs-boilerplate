@@ -9,7 +9,7 @@ Always use constructor injection. Do **not** use property injection (`@Inject()`
 @Injectable()
 export class TodoListsService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly todoListsDb: TodoListsDbService, // inject the DbService, not PrismaService
     private readonly logger: AppLogger,
     private readonly queue: Queue,
   ) {}
@@ -111,8 +111,8 @@ Always use `async/await`. Never use raw `.then()/.catch()` chains in service or 
 
 ```typescript
 // Good
-async findOne(id: string): Promise<TodoList> {
-  const list = await this.prisma.todoList.findUnique({ where: { id } });
+async findOne(userId: string, id: string): Promise<TodoList> {
+  const list = await this.todoListsDb.findByIdForUser(userId, id);
   if (!list) throw ErrorException.notFound('TodoList', id);
   return list;
 }
