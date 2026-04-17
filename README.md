@@ -6,6 +6,24 @@ per-department visibility.
 
 ---
 
+## Table of Contents
+
+- [How to Run](#how-to-run)
+- [API](#api)
+  - [Response envelope](#response-envelope)
+  - [Sample success responses](#sample-success-responses)
+  - [Sample error responses](#sample-error-responses)
+- [Design Decisions](#design-decisions)
+  - [Multi-tenant Approach](#multi-tenant-approach)
+  - [ACL Logic](#acl-logic)
+  - [Department Hierarchy Handling](#department-hierarchy-handling)
+- [Further Reading](#further-reading) — architecture, sequence diagrams, guides
+- [Out of Scope](#out-of-scope)
+- [Tech Stack](#tech-stack)
+- [Project Layout](#project-layout)
+
+---
+
 ## How to Run
 
 ```bash
@@ -60,7 +78,185 @@ npm run test:cov          # with coverage (≥ 70% global, ≥ 80% services)
 | GET    | `/api/v1/departments`      | Flat list of departments in the caller's company                                                                                                       |
 | GET    | `/api/v1/departments/tree` | Same list, nested by `parentId`                                                                                                                        |
 
-All routes require the `x-user-id` header.
+All routes require the `x-user-id` header. Full OpenAPI docs are live at
+`http://localhost:3000/docs` once the app is running.
+
+### Response envelope
+
+Every response (success or error) is wrapped by
+`src/common/interceptors/transform.interceptor.ts` /
+`src/common/filters/all-exceptions.filter.ts` into a standard shape so the
+client never has to special-case per-route parsing.
+
+**Success**
+
+```jsonc
+{
+  "success": true,
+  "data": <T>,               // route-specific payload
+  "meta": { ... },            // only present on paginated routes
+  "requestId": "req_01HXYZ…", // echoed from x-request-id, generated if absent
+  "traceId": "4bf92f3577b…",  // OTel trace id when tracing is enabled
+  "timestamp": "2026-04-17T10:15:30.123Z"
+}
+```
+
+**Error**
+
+```jsonc
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "VAL0001",          // domain-prefixed code
+      "message": "Validation failed",
+      "errorType": "VALIDATION",
+      "errorCategory": "CLIENT",
+      "retryable": false,
+      "details": [...],            // per-field validation issues (optional)
+      "cause": [...]               // cause chain — non-production only
+    }
+  ],
+  "requestId": "req_01HXYZ…",
+  "traceId": "4bf92f3577b…",
+  "timestamp": "2026-04-17T10:15:30.123Z"
+}
+```
+
+### Sample success responses
+
+**`POST /api/v1/tweets` → `201 Created`**
+
+Request:
+
+```bash
+curl -H "x-user-id: <ALICE>" -H "Content-Type: application/json" \
+     -X POST http://localhost:3000/api/v1/tweets \
+     -d '{"content":"hello team","visibility":"COMPANY"}'
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "3b1f4a2d-6c7e-4a01-9f2c-7a1a8a3b2c11",
+    "companyId": "a6b21e0f-5e4a-4b3d-9a11-0c0b2a8e4f71",
+    "authorId": "b5c32f1e-7d8a-4b02-0e13-1b2c3d4e5f61",
+    "content": "hello team",
+    "visibility": "COMPANY",
+    "createdAt": "2026-04-17T10:15:30.123Z"
+  },
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.124Z"
+}
+```
+
+**`GET /api/v1/timeline` → `200 OK`**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "3b1f4a2d-6c7e-4a01-9f2c-7a1a8a3b2c11",
+      "authorId": "b5c32f1e-7d8a-4b02-0e13-1b2c3d4e5f61",
+      "content": "hello team",
+      "visibility": "COMPANY",
+      "createdAt": "2026-04-17T10:15:30.123Z"
+    }
+  ],
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.400Z"
+}
+```
+
+### Sample error responses
+
+**`401 Unauthorized` — missing or unknown `x-user-id`** (`AUT0001`)
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "AUT0001",
+      "message": "Authentication required",
+      "errorType": "AUTHENTICATION",
+      "errorCategory": "CLIENT",
+      "retryable": false
+    }
+  ],
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.124Z"
+}
+```
+
+**`400 Bad Request` — Zod validation failure on `POST /tweets`** (`VAL0001`)
+
+Request body: `{ "content": "", "visibility": "COMPANY" }`
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "VAL0001",
+      "message": "Validation failed",
+      "errorType": "VALIDATION",
+      "errorCategory": "CLIENT",
+      "retryable": false,
+      "details": [{ "field": "content", "message": "String must contain at least 1 character(s)" }]
+    }
+  ],
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.124Z"
+}
+```
+
+**`422 Unprocessable Entity` — cross-tenant / out-of-company department id** (`VAL0008`)
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "VAL0008",
+      "message": "Referenced department ids include values outside this company.",
+      "errorType": "VALIDATION",
+      "errorCategory": "CLIENT",
+      "retryable": false
+    }
+  ],
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.124Z"
+}
+```
+
+**`404 Not Found` — parent department does not exist** (`DAT0009`)
+
+```json
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "DAT0009",
+      "message": "Department not found",
+      "errorType": "DATABASE",
+      "errorCategory": "CLIENT",
+      "retryable": false
+    }
+  ],
+  "requestId": "req_01HXYZABC",
+  "timestamp": "2026-04-17T10:15:30.124Z"
+}
+```
+
+> The exact `errorType` / `errorCategory` / HTTP status values for each code
+> are the single source of truth in
+> `src/errors/error-codes/*.ts`. The filter (`all-exceptions.filter.ts`) just
+> reads them; it never hard-codes mappings.
 
 ---
 
@@ -175,6 +371,57 @@ More detail on the SQL choices (including why `UNION` and not `UNION ALL`):
 
 ---
 
+## Further Reading
+
+The `docs/` tree is the deep-dive layer. Start at
+[`docs/CONTEXT.md`](docs/CONTEXT.md) for the top-level router, or jump
+straight to one of these high-value entry points.
+
+**Architecture (how the pieces fit together)**
+
+| Topic                                                  | File                                                                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Whole-system picture, request lifecycle                | [`docs/architecture/high-level-architecture.md`](docs/architecture/high-level-architecture.md) |
+| Prisma schema, composite FKs, tenancy columns          | [`docs/architecture/database-design.md`](docs/architecture/database-design.md)                 |
+| How `x-user-id` becomes CLS tenant context             | [`docs/architecture/mock-auth-flow.md`](docs/architecture/mock-auth-flow.md)                   |
+| Controller → Service → DbService → Repository layering | [`docs/architecture/service-architecture.md`](docs/architecture/service-architecture.md)       |
+
+**Sequence & flow diagrams (Mermaid)**
+
+| Diagram                                          | File                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Tweet create + timeline request flow             | [`docs/diagrams/tweets-sequence.md`](docs/diagrams/tweets-sequence.md)               |
+| Error-handling pipeline (throw → filter → wire)  | [`docs/diagrams/error-handling-flow.md`](docs/diagrams/error-handling-flow.md)       |
+| Observability pipeline (logs + OTel + collector) | [`docs/diagrams/observability-pipeline.md`](docs/diagrams/observability-pipeline.md) |
+
+**Topic guides (task-oriented)**
+
+| I want to…                             | File                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| Understand tenant isolation end-to-end | [`docs/guides/FOR-Multi-Tenancy.md`](docs/guides/FOR-Multi-Tenancy.md)   |
+| Work on the tweet / timeline path      | [`docs/guides/FOR-Tweets.md`](docs/guides/FOR-Tweets.md)                 |
+| Work on departments or the hierarchy   | [`docs/guides/FOR-Departments.md`](docs/guides/FOR-Departments.md)       |
+| Add a DbService/DbRepository           | [`docs/guides/FOR-Database-Layer.md`](docs/guides/FOR-Database-Layer.md) |
+| Add or fix an error code               | [`docs/guides/FOR-Error-Handling.md`](docs/guides/FOR-Error-Handling.md) |
+| Wire up logs / traces / metrics        | [`docs/guides/FOR-Observability.md`](docs/guides/FOR-Observability.md)   |
+
+**Product & infrastructure**
+
+| Topic                                      | File                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Product requirements (what we're building) | [`docs/prd/enterprise-twitter-prd.md`](docs/prd/enterprise-twitter-prd.md)                                   |
+| Docker Compose / local dev                 | [`docs/infrastructure/01-docker-setup.md`](docs/infrastructure/01-docker-setup.md)                           |
+| Environment variables                      | [`docs/infrastructure/02-environment-configuration.md`](docs/infrastructure/02-environment-configuration.md) |
+| Deployment checklist                       | [`docs/infrastructure/03-deployment-checklist.md`](docs/infrastructure/03-deployment-checklist.md)           |
+| Grafana / OTel collector stack             | [`docs/infrastructure/04-grafana-stack-setup.md`](docs/infrastructure/04-grafana-stack-setup.md)             |
+| Technical assumptions behind the design    | [`docs/assumptions/technical-assumptions.md`](docs/assumptions/technical-assumptions.md)                     |
+
+**Coding guidelines** — conventions, DI, error handling, testing — live under
+[`docs/coding-guidelines/`](docs/coding-guidelines/) (11 numbered files,
+indexed by [`docs/coding-guidelines/CONTEXT.md`](docs/coding-guidelines/CONTEXT.md)).
+
+---
+
 ## Out of Scope
 
 Features intentionally left out of this submission. Each item links to its
@@ -198,51 +445,25 @@ where the reasoning and a sketch of how it would be added are documented.
 
 ## Tech Stack
 
-**Runtime & framework**
-
-- **NestJS 11** on Node.js, HTTP via **Express** (`@nestjs/platform-express`).
-- **TypeScript 6**, compiled by **SWC** (`nest-cli.json` → `builder: "swc"`,
-  `@swc/core`) — `tsc` is still used for type-checking in CI (`npm run type:check`).
-- **@nestjs/swagger** for OpenAPI generation at `/docs`.
-
-**Database**
-
-- **PostgreSQL 16** as the single shared store.
-- **Prisma 7** in driver-adapter mode via **`@prisma/adapter-pg`** (native
-  `pg` driver) — gives us Prisma's ergonomics plus direct control over
-  connection pooling and raw SQL for the timeline CTE.
-
-**Request context & validation**
-
-- **nestjs-cls** — AsyncLocalStorage-backed request context; holds
-  `userId`, `companyId`, `userDepartmentIds` for every request.
-- **Zod 4** — request body validation and DTO inference.
-
-**Observability**
-
-- **Pino** + **nestjs-pino** — structured JSON logs with request
-  correlation.
-- **OpenTelemetry** — `@opentelemetry/sdk-node` + auto-instrumentations
-  (HTTP, Express, Nest) and OTLP gRPC exporters for traces and metrics.
-  Disabled by default (`OTEL_ENABLED=false`); flip it on for staging/prod.
-  See [`docs/guides/FOR-Observability.md`](docs/guides/FOR-Observability.md)
-  and [`docs/infrastructure/04-grafana-stack-setup.md`](docs/infrastructure/04-grafana-stack-setup.md).
-
-**HTTP hardening**
-
-- **Helmet** — standard security headers.
-- Per-route `ZodValidationPipe` and `ParseUuidPipe` to reject malformed input early.
-
-**Testing**
-
-- **Jest 30** + **supertest** — unit, integration, and e2e suites.
-- **@faker-js/faker** — deterministic fixtures for tests and seeds.
-
-**Tooling**
-
-- **ESLint** + **Prettier** — lint and format on save.
-- **Husky** + **lint-staged** + **Commitlint** — pre-commit hygiene and
-  conventional-commit enforcement.
+| Layer             | Tech                                                                                                                  | Version         | Why it's in the stack                                                                                                                                                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework         | **NestJS**                                                                                                            | 11              | Modular DI, decorators, first-class middleware/guard/interceptor model.                                                                                                                                                                              |
+| HTTP platform     | **Express** (`@nestjs/platform-express`)                                                                              | 5               | Default Nest adapter; well-understood middleware ecosystem.                                                                                                                                                                                          |
+| Language          | **TypeScript**                                                                                                        | 6               | Type safety across controllers, services, and Prisma-generated types.                                                                                                                                                                                |
+| Compiler          | **SWC** (`@swc/core`, `nest-cli.json` → `builder: "swc"`)                                                             | 1.x             | ~10× faster builds than `tsc`; `tsc --noEmit` still runs in CI for type-checking (`npm run type:check`).                                                                                                                                             |
+| API docs          | **@nestjs/swagger**                                                                                                   | 11              | OpenAPI 3 served at `/docs`.                                                                                                                                                                                                                         |
+| Database          | **PostgreSQL**                                                                                                        | 16              | Single shared store; recursive CTEs and composite FKs are first-class.                                                                                                                                                                               |
+| ORM               | **Prisma** + **`@prisma/adapter-pg`**                                                                                 | 7               | Driver-adapter mode → Prisma ergonomics + native `pg` driver for pool/raw-SQL control.                                                                                                                                                               |
+| Tenant context    | **nestjs-cls**                                                                                                        | 6               | AsyncLocalStorage request context — propagates `userId`, `companyId`, `userDepartmentIds` through every await.                                                                                                                                       |
+| Validation        | **Zod**                                                                                                               | 4               | Schema-driven DTOs + runtime validation via a custom `ZodValidationPipe`.                                                                                                                                                                            |
+| Logging           | **Pino** + **nestjs-pino**                                                                                            | 10 / 4          | Structured JSON logs, request-correlated, low overhead.                                                                                                                                                                                              |
+| Tracing & metrics | **OpenTelemetry** — `sdk-node`, auto-instrumentations (HTTP, Express, Nest), OTLP gRPC exporters for traces & metrics | 0.214.x / 2.6.x | Disabled by default (`OTEL_ENABLED=false`); flip on for staging/prod. See [`docs/guides/FOR-Observability.md`](docs/guides/FOR-Observability.md) + [`docs/infrastructure/04-grafana-stack-setup.md`](docs/infrastructure/04-grafana-stack-setup.md). |
+| HTTP hardening    | **Helmet**                                                                                                            | 8               | Standard security headers.                                                                                                                                                                                                                           |
+| Testing           | **Jest** + **supertest**                                                                                              | 30 / 7          | Unit, integration (real Postgres), and e2e suites.                                                                                                                                                                                                   |
+| Test fixtures     | **@faker-js/faker**                                                                                                   | 10              | Deterministic seed/fixture data.                                                                                                                                                                                                                     |
+| Config            | **@nestjs/config** + **Zod**                                                                                          | 4 / 4           | Schema-validated env at boot — fails fast on bad configuration.                                                                                                                                                                                      |
+| Lint / format     | **ESLint** + **Prettier**                                                                                             | 10 / 3          | Lint and format on save.                                                                                                                                                                                                                             |
+| Commit hygiene    | **Husky** + **lint-staged** + **Commitlint**                                                                          | 9 / 16 / 20     | Pre-commit checks and conventional-commit enforcement.                                                                                                                                                                                               |
 
 ---
 
