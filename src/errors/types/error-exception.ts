@@ -2,6 +2,7 @@ import { ErrorCodeDefinition, ErrorFieldDetail } from '../interfaces/error.inter
 import { DAT } from '../error-codes/database.errors';
 import { SRV } from '../error-codes/server.errors';
 import { VAL } from '../error-codes/validation.errors';
+import { serialiseErrorChain, SerialisedErrorFrame } from '../utils/cause-chain.util';
 
 /**
  * Options for constructing an ErrorException instance.
@@ -54,6 +55,15 @@ export class ErrorException extends Error {
 
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, ErrorException);
+    }
+
+    // Preserve the origin frames by appending the cause's stack trace. Without
+    // this, rethrow-as-ErrorException wipes the leaf stack and the observability
+    // pipeline shows only the wrap site. Guarded: the cause may be a non-Error
+    // value (plain object, undefined) or an Error without a `stack` property.
+    const causeStack = (options?.cause as Error | undefined)?.stack;
+    if (causeStack) {
+      this.stack = `${this.stack ?? ''}\nCaused by: ${causeStack}`;
     }
   }
 
@@ -138,9 +148,11 @@ export class ErrorException extends Error {
       response.details = this.details;
     }
 
-    // Cause chain — recursive, depth-limited
+    // Cause chain — delegated to the shared serialiser; response shape is
+    // preserved as `{ code?, message }[]` with a trailing truncation marker
+    // when the underlying chain is deeper than `maxDepth`.
     if (includeChain && this.cause) {
-      response.cause = extractCauseChain(this.cause, 5);
+      response.cause = buildResponseCauseChain(this.cause, 5);
     }
 
     return response as ReturnType<ErrorException['toResponse']>;
@@ -157,30 +169,37 @@ export class ErrorException extends Error {
       severity: this.definition.severity,
       details: this.details,
       stack: this.stack,
-      cause: this.cause ? extractCauseChain(this.cause, 10) : undefined,
+      cause: this.cause ? buildResponseCauseChain(this.cause, 10) : undefined,
     };
   }
 }
 
-/** Recursively extract cause chain up to maxDepth */
-function extractCauseChain(
+/**
+ * Adapt the shared {@link serialiseErrorChain} output to the legacy
+ * `{ code?, message }[]` shape returned by `toResponse`/`toLog`. Appends a
+ * `[truncated at depth N]` marker when the underlying chain was longer than
+ * `maxDepth`, matching the previous behaviour so existing callers and tests
+ * keep working.
+ */
+function buildResponseCauseChain(
   error: Error,
   maxDepth: number,
-  depth = 0,
 ): Array<{ code?: string; message: string }> {
-  if (depth >= maxDepth) return [{ message: `[truncated at depth ${maxDepth}]` }];
-
-  const entry: { code?: string; message: string } = { message: error.message };
-  if (error instanceof ErrorException) {
-    entry.code = error.code;
+  // Walk one deeper than the caller asked for so we can detect truncation
+  // without having to re-traverse the chain.
+  const frames = serialiseErrorChain(error, maxDepth + 1);
+  const capped = frames.slice(0, maxDepth);
+  const chain = capped.map(toResponseFrame);
+  if (frames.length > maxDepth) {
+    chain.push({ message: `[truncated at depth ${maxDepth}]` });
   }
-
-  const chain = [entry];
-  if (error.cause instanceof Error) {
-    chain.push(...extractCauseChain(error.cause as Error, maxDepth, depth + 1));
-  }
-
   return chain;
+}
+
+function toResponseFrame(frame: SerialisedErrorFrame): { code?: string; message: string } {
+  const entry: { code?: string; message: string } = { message: frame.message };
+  if (frame.code != null) entry.code = frame.code;
+  return entry;
 }
 
 /** Recursively flatten class-validator errors */
