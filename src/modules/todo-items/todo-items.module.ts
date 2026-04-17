@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TodoItemsRepository } from './todo-items.repository';
 import { TodoItemsService } from './todo-items.service';
 import { TodoItemsController } from './todo-items.controller';
 import { TodoItemsProcessor } from './todo-items.processor';
@@ -12,7 +11,7 @@ import { TodoListsModule } from '@modules/todo-lists/todo-lists.module';
 @Module({
   imports: [QueueModule, TodoListsModule],
   controllers: [TodoItemsController],
-  providers: [TodoItemsRepository, TodoItemsService, TodoItemsProcessor],
-  exports: [TodoItemsService, TodoItemsRepository],
+  providers: [TodoItemsService, TodoItemsProcessor],
+  exports: [TodoItemsService],
 })
 export class TodoItemsModule {}

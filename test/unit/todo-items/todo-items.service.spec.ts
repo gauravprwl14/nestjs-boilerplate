@@ -1,24 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TodoItemsService } from '@modules/todo-items/todo-items.service';
-import { TodoItemsRepository } from '@modules/todo-items/todo-items.repository';
+import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
 import { TodoListsService } from '@modules/todo-lists/todo-lists.service';
 import { TODO_QUEUE } from '@/queue/queue.module';
 import { createTestTodoItem, createTestTodoList } from '../../helpers/factories';
 import { ErrorException } from '@errors/types/error-exception';
 import { faker } from '@faker-js/faker';
 
-const createMockTodoItemsRepository = () => ({
-  create: jest.fn(),
+const createMockTodoItemsDbService = () => ({
+  createInList: jest.fn(),
   findByListId: jest.fn(),
-  findFirst: jest.fn(),
-  findUnique: jest.fn(),
-  findMany: jest.fn(),
-  update: jest.fn(),
-  delete: jest.fn(),
-  softDelete: jest.fn(),
-  count: jest.fn(),
-  findByIdWithTags: jest.fn(),
+  findByIdForUser: jest.fn(),
+  updateById: jest.fn(),
+  softDeleteById: jest.fn(),
+  assignTag: jest.fn(),
+  removeTag: jest.fn(),
 });
 
 const createMockTodoListsService = () => ({
@@ -35,19 +32,19 @@ const createMockQueue = () => ({
 
 describe('TodoItemsService', () => {
   let service: TodoItemsService;
-  let mockItemsRepo: ReturnType<typeof createMockTodoItemsRepository>;
+  let mockItemsDb: ReturnType<typeof createMockTodoItemsDbService>;
   let mockListsService: ReturnType<typeof createMockTodoListsService>;
   let mockQueue: ReturnType<typeof createMockQueue>;
 
   beforeEach(async () => {
-    mockItemsRepo = createMockTodoItemsRepository();
+    mockItemsDb = createMockTodoItemsDbService();
     mockListsService = createMockTodoListsService();
     mockQueue = createMockQueue();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TodoItemsService,
-        { provide: TodoItemsRepository, useValue: mockItemsRepo },
+        { provide: TodoItemsDbService, useValue: mockItemsDb },
         { provide: TodoListsService, useValue: mockListsService },
         { provide: getQueueToken(TODO_QUEUE), useValue: mockQueue },
       ],
@@ -66,7 +63,7 @@ describe('TodoItemsService', () => {
       const mockItem = createTestTodoItem({ todoListId: listId, title: dto.title });
 
       mockListsService.findOne.mockResolvedValue(mockList);
-      mockItemsRepo.create.mockResolvedValue(mockItem);
+      mockItemsDb.createInList.mockResolvedValue(mockItem);
 
       // --- ACT ---
       const result = await service.create(userId, listId, dto);
@@ -74,7 +71,10 @@ describe('TodoItemsService', () => {
       // --- ASSERT ---
       expect(result).toEqual(mockItem);
       expect(mockListsService.findOne).toHaveBeenCalledWith(userId, listId);
-      expect(mockItemsRepo.create).toHaveBeenCalled();
+      expect(mockItemsDb.createInList).toHaveBeenCalledWith(
+        listId,
+        expect.objectContaining({ title: dto.title }),
+      );
     });
 
     it('should enqueue overdue-check job when dueDate is provided', async () => {
@@ -87,7 +87,7 @@ describe('TodoItemsService', () => {
       const mockItem = createTestTodoItem({ todoListId: listId, dueDate: new Date(dueDate) });
 
       mockListsService.findOne.mockResolvedValue(mockList);
-      mockItemsRepo.create.mockResolvedValue(mockItem);
+      mockItemsDb.createInList.mockResolvedValue(mockItem);
 
       // --- ACT ---
       await service.create(userId, listId, dto);
@@ -109,7 +109,7 @@ describe('TodoItemsService', () => {
       const mockItem = createTestTodoItem({ todoListId: listId });
 
       mockListsService.findOne.mockResolvedValue(mockList);
-      mockItemsRepo.create.mockResolvedValue(mockItem);
+      mockItemsDb.createInList.mockResolvedValue(mockItem);
 
       // --- ACT ---
       await service.create(userId, listId, dto);
@@ -126,11 +126,13 @@ describe('TodoItemsService', () => {
       const item = createTestTodoItem({ status: 'PENDING' });
       const updatedItem = { ...item, status: 'IN_PROGRESS' };
 
-      mockItemsRepo.findFirst.mockResolvedValue(item);
-      mockItemsRepo.update.mockResolvedValue(updatedItem);
+      mockItemsDb.findByIdForUser.mockResolvedValue(item);
+      mockItemsDb.updateById.mockResolvedValue(updatedItem);
 
       // --- ACT ---
-      const result = await service.update(userId, item.id as string, { status: 'IN_PROGRESS' as never });
+      const result = await service.update(userId, item.id as string, {
+        status: 'IN_PROGRESS' as never,
+      });
 
       // --- ASSERT ---
       expect(result.status).toBe('IN_PROGRESS');
@@ -141,7 +143,7 @@ describe('TodoItemsService', () => {
       const userId = faker.string.uuid();
       const item = createTestTodoItem({ status: 'ARCHIVED' });
 
-      mockItemsRepo.findFirst.mockResolvedValue(item);
+      mockItemsDb.findByIdForUser.mockResolvedValue(item);
 
       // --- ACT & ASSERT ---
       await expect(
@@ -161,15 +163,17 @@ describe('TodoItemsService', () => {
       const item = createTestTodoItem({ status: 'IN_PROGRESS', completedAt: null });
       const updatedItem = { ...item, status: 'COMPLETED', completedAt: new Date() };
 
-      mockItemsRepo.findFirst.mockResolvedValue(item);
-      mockItemsRepo.update.mockResolvedValue(updatedItem);
+      mockItemsDb.findByIdForUser.mockResolvedValue(item);
+      mockItemsDb.updateById.mockResolvedValue(updatedItem);
 
       // --- ACT ---
-      const result = await service.update(userId, item.id as string, { status: 'COMPLETED' as never });
+      const result = await service.update(userId, item.id as string, {
+        status: 'COMPLETED' as never,
+      });
 
       // --- ASSERT ---
-      expect(mockItemsRepo.update).toHaveBeenCalledWith(
-        { id: item.id },
+      expect(mockItemsDb.updateById).toHaveBeenCalledWith(
+        item.id,
         expect.objectContaining({ completedAt: expect.any(Date) }),
       );
       expect(result.status).toBe('COMPLETED');
@@ -181,11 +185,13 @@ describe('TodoItemsService', () => {
       const item = createTestTodoItem({ status: 'IN_PROGRESS' });
       const updatedItem = { ...item, status: 'PENDING' };
 
-      mockItemsRepo.findFirst.mockResolvedValue(item);
-      mockItemsRepo.update.mockResolvedValue(updatedItem);
+      mockItemsDb.findByIdForUser.mockResolvedValue(item);
+      mockItemsDb.updateById.mockResolvedValue(updatedItem);
 
       // --- ACT ---
-      const result = await service.update(userId, item.id as string, { status: 'PENDING' as never });
+      const result = await service.update(userId, item.id as string, {
+        status: 'PENDING' as never,
+      });
 
       // --- ASSERT ---
       expect(result.status).toBe('PENDING');
@@ -199,15 +205,15 @@ describe('TodoItemsService', () => {
       const item = createTestTodoItem();
       const deletedItem = { ...item, deletedAt: new Date() };
 
-      mockItemsRepo.findFirst.mockResolvedValue(item);
-      mockItemsRepo.softDelete.mockResolvedValue(deletedItem);
+      mockItemsDb.findByIdForUser.mockResolvedValue(item);
+      mockItemsDb.softDeleteById.mockResolvedValue(deletedItem);
 
       // --- ACT ---
       const result = await service.remove(userId, item.id as string);
 
       // --- ASSERT ---
       expect(result.deletedAt).not.toBeNull();
-      expect(mockItemsRepo.softDelete).toHaveBeenCalledWith({ id: item.id });
+      expect(mockItemsDb.softDeleteById).toHaveBeenCalledWith(item.id);
     });
 
     it('should throw notFound when item does not exist', async () => {
@@ -215,7 +221,7 @@ describe('TodoItemsService', () => {
       const userId = faker.string.uuid();
       const itemId = faker.string.uuid();
 
-      mockItemsRepo.findFirst.mockResolvedValue(null);
+      mockItemsDb.findByIdForUser.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.remove(userId, itemId)).rejects.toMatchObject({
