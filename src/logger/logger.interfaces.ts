@@ -98,6 +98,19 @@ export interface ILogEventOptions {
    * @default false
    */
   logOnly?: boolean;
+
+  /**
+   * Registry paths to leave **unmasked** for this single call. Every unique
+   * `(path, callsite)` pair emits one audit INFO line via
+   * `security.allow_pii.used`. Use sparingly — this is the documented PII
+   * escape hatch.
+   *
+   * @example
+   * ```typescript
+   * logger.logEvent('user.audit', { attributes: { email }, allowPII: ['*.email'] });
+   * ```
+   */
+  allowPII?: readonly string[];
 }
 
 /**
@@ -138,6 +151,13 @@ export interface ILogErrorOptions {
    * @default true
    */
   recordException?: boolean;
+
+  /**
+   * Registry paths to leave **unmasked** for the attributes of this single
+   * call. The error's message and stacktrace are always scrubbed via
+   * `RedactorService.redactString` before being written to the span.
+   */
+  allowPII?: readonly string[];
 }
 
 /**
