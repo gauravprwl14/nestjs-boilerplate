@@ -3,6 +3,7 @@ import { Prisma, Department } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { BaseRepository } from '@database/base.repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Repository for the Department model. Only file outside src/database that
@@ -10,6 +11,7 @@ import { DbTransactionClient } from '@database/types';
  * tenant-scope Prisma extension: either via the extended root client
  * (`prisma.tenantScoped`) or via a transaction client started from it.
  */
+@InstrumentClass()
 @Injectable()
 export class DepartmentsDbRepository extends BaseRepository<
   Department,

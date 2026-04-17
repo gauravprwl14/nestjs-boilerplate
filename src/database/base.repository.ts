@@ -2,6 +2,7 @@ import { PaginationParams, PaginatedResult, PaginationMeta } from '@common/inter
 import { DEFAULT_PAGE, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@common/constants';
 import { PrismaService } from '@database/prisma.service';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 interface PrismaDelegate<
   TModel,
@@ -32,6 +33,7 @@ interface PrismaDelegate<
   count(args?: { where?: TWhereInput }): Promise<number>;
 }
 
+@InstrumentClass()
 export abstract class BaseRepository<
   TModel,
   TCreateInput,

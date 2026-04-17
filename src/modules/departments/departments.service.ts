@@ -5,6 +5,7 @@ import { DepartmentsDbService } from '@database/departments/departments.db-servi
 import { ClsKey } from '@common/cls/cls.constants';
 import { ErrorException } from '@errors/types/error-exception';
 import { DAT } from '@errors/error-codes';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 
 /** Nested shape returned by `listTree`. */
@@ -22,6 +23,7 @@ export interface DepartmentTreeNode {
  * Prisma extension; we also pass `companyId` to the db-service methods explicitly
  * as a readability safeguard.
  */
+@InstrumentClass()
 @Injectable()
 export class DepartmentsService {
   constructor(

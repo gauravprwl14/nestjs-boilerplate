@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { Department } from '@prisma/client';
 import { DepartmentsDbRepository } from './departments.db-repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Public DB surface for the Department aggregate.
  */
+@InstrumentClass()
 @Injectable()
 export class DepartmentsDbService {
   constructor(private readonly repo: DepartmentsDbRepository) {}

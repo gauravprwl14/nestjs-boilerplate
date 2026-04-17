@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { UsersDbRepository, UserAuthContext } from './users.db-repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Public DB surface for the User aggregate.
  * The only consumer right now is MockAuthMiddleware.
  */
+@InstrumentClass()
 @Injectable()
 export class UsersDbService {
   constructor(private readonly repo: UsersDbRepository) {}

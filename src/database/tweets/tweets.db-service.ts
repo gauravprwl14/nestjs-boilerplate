@@ -3,11 +3,13 @@ import { Tweet, TweetVisibility } from '@prisma/client';
 import { TweetsDbRepository, TimelineRow } from './tweets.db-repository';
 import { DatabaseService } from '@database/database.service';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Public DB surface for the Tweet aggregate.
  * Exposes create (with optional department targets) and the timeline query.
  */
+@InstrumentClass()
 @Injectable()
 export class TweetsDbService {
   constructor(

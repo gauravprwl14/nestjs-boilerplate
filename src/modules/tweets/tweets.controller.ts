@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UsePipes } from '@nestjs/common';
 import { ApiTags, ApiSecurity } from '@nestjs/swagger';
 import { ZodValidationPipe } from '@common/pipes/zod-validation.pipe';
+import { Trace } from '@telemetry/decorators/trace.decorator';
 import { TweetsService, TimelineTweet } from './tweets.service';
 import { CreateTweetDto, CreateTweetSchema } from './dto/create-tweet.dto';
 import { CreateTweetSwagger, GetTimelineSwagger } from './tweets.swagger';
@@ -21,12 +22,14 @@ export class TweetsController {
   @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ZodValidationPipe(CreateTweetSchema))
   @CreateTweetSwagger()
+  @Trace({ spanName: 'tweets.create' })
   async create(@Body() dto: CreateTweetDto): Promise<Tweet> {
     return this.service.create(dto);
   }
 
   @Get('timeline')
   @GetTimelineSwagger()
+  @Trace({ spanName: 'tweets.timeline' })
   async timeline(): Promise<TimelineTweet[]> {
     return this.service.timeline();
   }
