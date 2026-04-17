@@ -65,7 +65,8 @@ curl -sS -H "x-user-id: <seeded-user-uuid>" http://<host>:3000/api/v1/timeline |
 - [ ] `POST /api/v1/tweets` with valid body returns `201`
 - [ ] Cross-tenant `departmentIds` in `POST /tweets` returns `400 VAL0008` (prove tenant isolation)
 - [ ] Grafana shows incoming traces (if OTel enabled)
-- [ ] Logs appear in Loki with correct `APP_NAME` service label
+- [ ] Logs appear in Loki (Pino → OTel Logs API → collector → Loki), filtered by `service.name = $OTEL_SERVICE_NAME`
+- [ ] Metrics arrive in Prometheus via **remote-write** (e.g. `http_server_duration_milliseconds_count` shows recent requests) — Prometheus must run with `--web.enable-remote-write-receiver`
 
 ## Rollback Plan
 

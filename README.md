@@ -19,6 +19,7 @@ per-department visibility.
   - [Department Hierarchy Handling](#department-hierarchy-handling)
 - [Further Reading](#further-reading) — architecture, sequence diagrams, guides
 - [Out of Scope](#out-of-scope)
+- [FAQ](#faq)
 - [Tech Stack](#tech-stack)
 - [Project Layout](#project-layout)
 
@@ -26,29 +27,54 @@ per-department visibility.
 
 ## How to Run
 
+Pick one path. The first is the zero-deps happy path.
+
+### A. Everything in containers (recommended)
+
+Needs only Podman (or Docker). App + Postgres + observability boot together,
+with migrations and seed auto-applied (idempotent).
+
 ```bash
-# 1. Install
-npm install
-
-# 2. Env — defaults point to local Postgres on :5432
-cp .env.example .env.development
-# (edit DATABASE_URL if your Postgres is elsewhere)
-
-# 3. Apply the schema
-npm run prisma:migrate:dev
-
-# 4. Seed — creates companies, department trees, users; prints user ids
-npx prisma db seed
-
-# 5. Start
-npm run start:dev         # http://localhost:3000
-                          # Swagger at http://localhost:3000/docs
+podman compose up -d                         # or: docker compose up -d
 ```
 
-Authenticate any request by setting `x-user-id` to a seeded user id:
+- API: <http://localhost:3000> · Swagger at `/docs`
+- Grafana: <http://localhost:3001> (anonymous admin)
+
+### B. App on host, Postgres in container (fastest dev loop)
 
 ```bash
-# Replace <ALICE> with the UUID printed by the seed command.
+podman compose up -d postgres                 # DB only, mapped to host :5433
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/enterprise_twitter_dev?schema=public"
+npm install
+npm run start:dev:seeded                      # migrate + seed + start:dev
+```
+
+### C. Everything on host (no containers)
+
+Requires a local **Postgres 16** with an empty `enterprise_twitter_dev` database.
+
+```bash
+export DATABASE_URL="postgresql://<user>:<pwd>@localhost:5432/enterprise_twitter_dev?schema=public"
+npm install
+npm run start:dev:seeded
+```
+
+More detail (individual services, observability-only boot, re-seed):
+[`docs/coding-guidelines/09-development-workflow.md`](docs/coding-guidelines/09-development-workflow.md).
+
+### Making a request
+
+The seed prints every user UUID on first run. To fetch one anytime:
+
+```bash
+podman compose exec postgres \
+  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, email FROM users;'
+```
+
+Then set `x-user-id`:
+
+```bash
 curl -H "x-user-id: <ALICE>" http://localhost:3000/api/v1/timeline
 
 curl -H "x-user-id: <ALICE>" -H "Content-Type: application/json" \
@@ -440,6 +466,69 @@ where the reasoning and a sketch of how it would be added are documented.
   — OTel scaffolding present, disabled by `OTEL_ENABLED=false`.
 - [Rate limiting, request size limits, CORS tuning](docs/assumptions/out-of-scope.md#rate-limiting-request-size-limits-cors-tuning)
   — stock NestJS defaults; production would tighten all three.
+
+---
+
+## FAQ
+
+**How do I get a user id to use as `x-user-id`?**
+
+The seed prints every user's UUID to stdout on first run. If the DB is already
+seeded (the seed is idempotent — see `prisma/seed.ts:18-22`), query the `users`
+table directly:
+
+```bash
+podman compose exec postgres \
+  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, name, email FROM users;'
+```
+
+Or re-run the seed printer only (safe; no-ops if data exists):
+
+```bash
+npm run prisma:seed
+```
+
+Or open Prisma Studio:
+
+```bash
+npm run prisma:studio
+```
+
+> Tables are snake-plural (`users`, `companies`, `departments`, `tweets`, …) via
+> Prisma `@@map` directives — `SELECT … FROM "user"` will fail with
+> `relation "user" does not exist`.
+
+**Why does `SELECT … FROM "user"` fail?**
+
+See above — every model in `src/database/prisma/schema.prisma` is mapped to a
+plural snake_case table name. Use `users`, not `"user"`.
+
+**I get `401 AUT0001` on every request.**
+
+The `x-user-id` header is missing or the UUID isn't in the `users` table. Grab a
+valid id via the command above and pass it on every request:
+
+```bash
+curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
+```
+
+Swagger (`/docs`) and health probes are `@Public()` and do not need the header.
+
+**How do I force a re-seed?**
+
+The seed short-circuits if any company row exists. Truncate first, then re-run:
+
+```bash
+podman compose exec postgres psql -U postgres -d enterprise_twitter_dev -c \
+  'TRUNCATE companies, departments, users, user_departments, tweets, tweet_departments CASCADE;'
+npm run prisma:seed
+```
+
+Or wipe and re-migrate the whole schema (drops all data):
+
+```bash
+npm run prisma:migrate:reset
+```
 
 ---
 

@@ -7,6 +7,7 @@
 ## 1. Business Use Case
 
 Observability answers three questions in production:
+
 - **What happened?** → Structured logs in Loki
 - **Where did time go?** → Distributed traces in Tempo
 - **How is the system behaving over time?** → Metrics in Prometheus
@@ -34,7 +35,8 @@ App (OTel SDK)
 
 ```
 src/telemetry/
-├── otel-sdk.ts              # OTel SDK init — MUST run before NestJS bootstrap
+├── otel-preload.ts          # Side-effect module — calls initOtelSdk() at import time; MUST be the first import in main.ts
+├── otel-sdk.ts              # OTel SDK init — traces (OTLP gRPC → Tempo) + metrics (OTLP gRPC → Prometheus remote-write) + logs (Pino auto-instrumentation → OTLP gRPC → Loki)
 ├── telemetry.module.ts      # @Global() module; provides TelemetryService
 ├── telemetry.service.ts     # addSpanAttributes(), getCurrentTraceId(), etc.
 ├── otel.constants.ts        # Metric names, attribute key constants
@@ -61,20 +63,20 @@ src/logger/
 
 ### AppLogger
 
-| Method | Usage |
-|--------|-------|
-| `logEvent(event, payload)` | Semantic domain event: `logEvent('tweet.created', { attributes: { tweetId, companyId } })` |
-| `logError(name, error, opts?)` | Structured error log with stack + code + OTel span recording |
-| `child(bindings)` | Returns child logger with persistent fields (e.g. `{ userId, companyId }`) |
-| `log(msg, { level, attributes? })` | Escape hatch for non-INFO/non-ERROR levels |
+| Method                             | Usage                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `logEvent(event, payload)`         | Semantic domain event: `logEvent('tweet.created', { attributes: { tweetId, companyId } })` |
+| `logError(name, error, opts?)`     | Structured error log with stack + code + OTel span recording                               |
+| `child(bindings)`                  | Returns child logger with persistent fields (e.g. `{ userId, companyId }`)                 |
+| `log(msg, { level, attributes? })` | Escape hatch for non-INFO/non-ERROR levels                                                 |
 
 ### TelemetryService
 
-| Method | Usage |
-|--------|-------|
-| `addSpanAttributes(attrs)` | Add key-value attrs to current OTel span |
-| `getCurrentTraceId()` | Get active traceId string (for logging correlation) |
-| `startSpan(name, fn)` | Manually wrap a function in a named span |
+| Method                     | Usage                                               |
+| -------------------------- | --------------------------------------------------- |
+| `addSpanAttributes(attrs)` | Add key-value attrs to current OTel span            |
+| `getCurrentTraceId()`      | Get active traceId string (for logging correlation) |
+| `startSpan(name, fn)`      | Manually wrap a function in a named span            |
 
 ### Decorators
 
@@ -100,30 +102,57 @@ async timeline() { ... }
 
 ## 5. Error Cases
 
-| Scenario | Behaviour |
-|----------|-----------|
-| `OTEL_ENABLED=false` | SDK not initialised; all `@Trace` / `@InstrumentClass` calls are no-ops |
-| OTel Collector unreachable | Spans are dropped silently; app continues normally |
-| Log sanitizer misses a sensitive field | Add the field name to `sanitizer.util.ts`; submit a PR immediately |
-| `addSpanAttributes` called with no active span | No-op (OTel API is safe to call without an active context) |
+| Scenario                                       | Behaviour                                                               |
+| ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `OTEL_ENABLED=false`                           | SDK not initialised; all `@Trace` / `@InstrumentClass` calls are no-ops |
+| OTel Collector unreachable                     | Spans are dropped silently; app continues normally                      |
+| Log sanitizer misses a sensitive field         | Add the field name to `sanitizer.util.ts`; submit a PR immediately      |
+| `addSpanAttributes` called with no active span | No-op (OTel API is safe to call without an active context)              |
 
 ---
 
 ## 6. Configuration
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `OTEL_ENABLED` | Enable OTel SDK | `false` |
-| `OTEL_SERVICE_NAME` | Service name in all telemetry signals | `enterprise-twitter` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector gRPC endpoint | Required when enabled |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport protocol | `grpc` |
-| `LOG_LEVEL` | Minimum log level | `info` |
+| Variable                      | Purpose                               | Default               |
+| ----------------------------- | ------------------------------------- | --------------------- |
+| `OTEL_ENABLED`                | Enable OTel SDK                       | `false`               |
+| `OTEL_SERVICE_NAME`           | Service name in all telemetry signals | `enterprise-twitter`  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector gRPC endpoint               | Required when enabled |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport protocol                    | `grpc`                |
+| `LOG_LEVEL`                   | Minimum log level                     | `info`                |
 
-**Important:** `otel-sdk.ts` must be imported in `main.ts` **before** any NestJS imports.
-This ensures auto-instrumentation patches are applied before modules load.
+**Important:** `src/telemetry/otel-preload.ts` must be imported in `main.ts`
+**before** any NestJS imports. It is a side-effect module that calls
+`initOtelSdk()` at module-body evaluation time, so auto-instrumentation patches
+(`@nestjs/core`, `pino`, `http`, Prisma, …) are applied before those modules
+are required. Calling `initOtelSdk()` later (e.g. inside `bootstrap()`) is too
+late — `@nestjs/core` and its transitive `pino` are already cached and cannot
+be patched, and the Pino → Loki pipeline silently no-ops.
 
 ```typescript
 // main.ts — correct order
-import './telemetry/otel-sdk'; // FIRST
+import '@telemetry/otel-preload'; // FIRST — triggers initOtelSdk() as a side effect
 import { NestFactory } from '@nestjs/core'; // SECOND
 ```
+
+### Logs pipeline (Pino → OTel → Loki)
+
+The OTel SDK wires a full logs pipeline alongside traces and metrics:
+
+- `@opentelemetry/instrumentation-pino` is enabled, so every `pino.info/error/…`
+  call is forwarded to the OTel Logs API with the active `traceId`/`spanId`
+  stamped on each record.
+- A `BatchLogRecordProcessor` + `OTLPLogExporter` (`@opentelemetry/exporter-logs-otlp-grpc`)
+  batches and ships log records over OTLP gRPC to the collector.
+- The collector's `otlphttp/loki` exporter forwards to Loki
+  (`docker/grafana/otel-collector-config.yml`).
+
+No manual wiring is needed in application code — keep using `AppLogger` as
+before.
+
+### Metrics pipeline (push, not scrape)
+
+Metrics are **pushed** to Prometheus via the collector's
+`prometheusremotewrite` exporter. Prometheus runs with
+`--web.enable-remote-write-receiver` (set in `docker-compose.yml`). There is
+no scrape endpoint on the app or the collector — do not add one.
