@@ -8,20 +8,27 @@ per-department visibility.
 
 ## Table of Contents
 
-- [How to Run](#how-to-run)
-- [API](#api)
-  - [Response envelope](#response-envelope)
-  - [Sample success responses](#sample-success-responses)
-  - [Sample error responses](#sample-error-responses)
-- [Design Decisions](#design-decisions)
-  - [Multi-tenant Approach](#multi-tenant-approach)
-  - [ACL Logic](#acl-logic)
-  - [Department Hierarchy Handling](#department-hierarchy-handling)
-- [Further Reading](#further-reading) — architecture, sequence diagrams, guides
-- [Out of Scope](#out-of-scope)
-- [Tech Stack](#tech-stack)
-- [Project Layout](#project-layout)
-- [FAQ](#faq)
+- [Enterprise Twitter — Multi-Tenant Backend](#enterprise-twitter--multi-tenant-backend)
+  - [Table of Contents](#table-of-contents)
+  - [How to Run](#how-to-run)
+    - [1. Clone](#1-clone)
+    - [2. Start the app](#2-start-the-app)
+    - [3. Make a request](#3-make-a-request)
+      - [Using Swagger UI or Postman](#using-swagger-ui-or-postman)
+    - [4. Run tests](#4-run-tests)
+  - [API](#api)
+    - [Response envelope](#response-envelope)
+    - [Sample success responses](#sample-success-responses)
+    - [Sample error responses](#sample-error-responses)
+  - [Design Decisions](#design-decisions)
+    - [Multi-tenant Approach](#multi-tenant-approach)
+    - [ACL Logic](#acl-logic)
+    - [Department Hierarchy Handling](#department-hierarchy-handling)
+  - [Further Reading](#further-reading)
+  - [Out of Scope](#out-of-scope)
+  - [Tech Stack](#tech-stack)
+  - [Project Layout](#project-layout)
+  - [FAQ](#faq)
 
 ---
 
@@ -48,6 +55,10 @@ Pick the row that matches your setup, then run the commands under that option.
 | **B. Hybrid**                     | Postgres in a container, app on host   | Active development (fast HMR)  | Podman/Docker + Node     |
 | **C. Native**                     | Both on host                           | No container runtime available | Node + local Postgres 16 |
 
+- API &nbsp;&nbsp;· <http://localhost:3000>
+- Swagger at `/docs` <http://localhost:3000/docs>
+- Grafana · <http://localhost:3001> (anonymous admin)
+
 <details>
 <summary><b>A. Docker-all</b> — zero-deps happy path</summary>
 
@@ -56,9 +67,6 @@ podman compose up -d            # or: docker compose up -d
 ```
 
 Migrations and seed run automatically (idempotent).
-
-- API &nbsp;&nbsp;· <http://localhost:3000> · Swagger at `/docs`
-- Grafana · <http://localhost:3001> (anonymous admin)
 
 </details>
 
