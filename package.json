@@ -1,5 +1,5 @@
 {
-  "name": "ai-native-nestjs-backend",
+  "name": "stmn-backend-test-gauravP",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,6 +11,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
+    "start:dev:seeded": "npm run prisma:migrate:deploy && npm run prisma:seed && npm run start:dev",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
@@ -30,7 +31,8 @@
     "prepare": "husky"
   },
   "prisma": {
-    "schema": "src/database/prisma/schema.prisma"
+    "schema": "src/database/prisma/schema.prisma",
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
   },
   "lint-staged": {
     "*.ts": [
@@ -43,16 +45,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gauravprwl14/nestjs-boilerplate.git"
+    "url": "https://github.com/stmn-gcc-hiring/stmn-backend-test-gauravP"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/gauravprwl14/nestjs-boilerplate/issues"
+    "url": "https://github.com/stmn-gcc-hiring/stmn-backend-test-gauravP/issues"
   },
-  "homepage": "https://github.com/gauravprwl14/nestjs-boilerplate#readme",
+  "homepage": "https://github.com/stmn-gcc-hiring/stmn-backend-test-gauravP#readme",
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.0",
@@ -68,11 +70,13 @@
     "@nestjs/throttler": "^6.5.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/auto-instrumentations-node": "^0.72.0",
+    "@opentelemetry/exporter-logs-otlp-grpc": "^0.215.0",
     "@opentelemetry/exporter-metrics-otlp-grpc": "^0.214.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.214.0",
     "@opentelemetry/instrumentation-express": "^0.62.0",
     "@opentelemetry/instrumentation-http": "^0.214.0",
     "@opentelemetry/resources": "^2.6.1",
+    "@opentelemetry/sdk-logs": "^0.215.0",
     "@opentelemetry/sdk-metrics": "^2.6.1",
     "@opentelemetry/sdk-node": "^0.214.0",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
@@ -112,6 +116,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
+    "@types/k6": "^1.7.0",
     "@types/node": "^25.6.0",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.2.0",
@@ -130,6 +135,7 @@
     "prisma": "^7.7.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.9",
+    "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
   }
 }

@@ -16,8 +16,8 @@ export const options = {
 export default function () {
   const res = http.get('http://localhost:3000/api/v1/health/live');
   check(res, {
-    'status is 200': (r) => r.status === 200,
-    'response time < 200ms': (r) => r.timings.duration < 200,
+    'status is 200': r => r.status === 200,
+    'response time < 200ms': r => r.timings.duration < 200,
   });
   sleep(0.1);
 }

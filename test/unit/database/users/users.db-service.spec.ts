@@ -1,47 +1,59 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { UsersDbRepository } from '@database/users/users.db-repository';
+/**
+ * UsersDbService — thin facade over UsersDbRepository. We verify it
+ * forwards to the repository verbatim (including the tx client).
+ * The primary consumer is MockAuthMiddleware, which calls `findAuthContext`.
+ */
 import { UsersDbService } from '@database/users/users.db-service';
 
 describe('UsersDbService', () => {
-  let service: UsersDbService;
-  let repo: jest.Mocked<UsersDbRepository>;
+  const repo = { findAuthContext: jest.fn() } as any;
+  const service = new UsersDbService(repo);
 
-  beforeEach(async () => {
-    const repoMock: Partial<jest.Mocked<UsersDbRepository>> = {
-      findById: jest.fn(),
-      findActiveByEmail: jest.fn(),
-      findActiveById: jest.fn(),
-      createUser: jest.fn(),
-      updateProfile: jest.fn(),
-      updatePassword: jest.fn(),
-      recordFailedLogin: jest.fn(),
-      resetFailedLogin: jest.fn(),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersDbService, { provide: UsersDbRepository, useValue: repoMock }],
-    }).compile();
-
-    service = module.get(UsersDbService);
-    repo = module.get(UsersDbRepository);
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  it('findById delegates to repo.findById', async () => {
-    repo.findById.mockResolvedValue({ id: 'u1' } as never);
-    const r = await service.findById('u1');
-    expect(repo.findById).toHaveBeenCalledWith('u1', undefined);
-    expect(r).toEqual({ id: 'u1' });
-  });
+  describe('findAuthContext', () => {
+    it('should delegate to the repository and return its result', async () => {
+      // --- ARRANGE ---
+      const ctx = {
+        id: 'u1',
+        companyId: 'c1',
+        email: 'a@b',
+        name: 'Alice',
+        departmentIds: ['d1'],
+      };
+      repo.findAuthContext.mockResolvedValueOnce(ctx);
 
-  it('updateProfile forwards patch to repo.updateProfile', async () => {
-    repo.updateProfile.mockResolvedValue({ id: 'u1' } as never);
-    await service.updateProfile('u1', { firstName: 'A' });
-    expect(repo.updateProfile).toHaveBeenCalledWith('u1', { firstName: 'A' }, undefined);
-  });
+      // --- ACT ---
+      const out = await service.findAuthContext('u1');
 
-  it('create forwards input to repo.createUser', async () => {
-    repo.createUser.mockResolvedValue({ id: 'u1' } as never);
-    await service.create({ email: 'a@b.c', passwordHash: 'h' });
-    expect(repo.createUser).toHaveBeenCalledWith({ email: 'a@b.c', passwordHash: 'h' }, undefined);
+      // --- ASSERT ---
+      expect(out).toBe(ctx);
+      expect(repo.findAuthContext).toHaveBeenCalledWith('u1', undefined);
+    });
+
+    it('should propagate a null result (user not found)', async () => {
+      // --- ARRANGE ---
+      repo.findAuthContext.mockResolvedValueOnce(null);
+
+      // --- ACT ---
+      const out = await service.findAuthContext('ghost');
+
+      // --- ASSERT ---
+      expect(out).toBeNull();
+    });
+
+    it('should thread the tx client through to the repo', async () => {
+      // --- ARRANGE ---
+      const tx = { marker: true } as any;
+      repo.findAuthContext.mockResolvedValueOnce(null);
+
+      // --- ACT ---
+      await service.findAuthContext('u1', tx);
+
+      // --- ASSERT ---
+      expect(repo.findAuthContext).toHaveBeenCalledWith('u1', tx);
+    });
   });
 });

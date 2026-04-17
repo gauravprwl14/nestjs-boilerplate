@@ -89,17 +89,24 @@ import { AUT, DAT, VAL, GEN, AUZ, SRV } from '@errors/error-codes';
 | `DAT.NOT_FOUND` | `DAT0001` | 404 | Resource not found |
 | `DAT.CONFLICT` | `DAT0002` | 409 | Resource conflict |
 | `DAT.UNIQUE_VIOLATION` | `DAT0003` | 409 | Unique constraint |
+| `DAT.DEPARTMENT_NOT_FOUND` | `DAT0009` | 404 | Parent department not in the caller's company |
+| `DAT.COMPANY_NOT_FOUND` | `DAT0010` | 404 | Company lookup failed (defensive) |
 | `VAL.INVALID_INPUT` | `VAL0001` | 400 | Validation failure |
-| `VAL.INVALID_STATUS_TRANSITION` | `VAL0004` | 400 | Status transition |
-| `AUT.UNAUTHENTICATED` | `AUT0001` | 401 | No credentials |
-| `AUT.INVALID_CREDENTIALS` | `AUT0006` | 401 | Wrong credentials |
-| `AUT.TOKEN_EXPIRED` | `AUT0002` | 401 | Token expired |
-| `AUT.TOKEN_INVALID` | `AUT0003` | 401 | Malformed token |
+| `VAL.INVALID_STATUS_TRANSITION` | `VAL0004` | 400 | Status transition (general-purpose) |
+| `VAL.DEPARTMENT_IDS_REQUIRED` | `VAL0007` | 400 | DEPARTMENTS* visibility without departmentIds |
+| `VAL.DEPARTMENT_NOT_IN_COMPANY` | `VAL0008` | 400 | Referenced departmentIds include cross-tenant ids |
+| `AUT.UNAUTHENTICATED` | `AUT0001` | 401 | Missing / unknown `x-user-id` header |
 | `AUZ.FORBIDDEN` | `AUZ0001` | 403 | Access denied |
 | `AUZ.INSUFFICIENT_PERMISSIONS` | `AUZ0002` | 403 | Missing permissions |
+| `AUZ.CROSS_TENANT_ACCESS` | `AUZ0004` | 403 | Write carried a companyId that disagrees with CLS (extension backstop) |
 | `GEN.REQUEST_TIMEOUT` | `GEN0002` | 408 | Timeout |
 | `GEN.RATE_LIMITED` | `GEN0001` | 429 | Rate limit |
 | `SRV.INTERNAL_ERROR` | `SRV0001` | 500 | Unexpected error |
+
+> The JWT-era codes `AUT.INVALID_CREDENTIALS`, `AUT.TOKEN_EXPIRED`,
+> `AUT.TOKEN_INVALID`, `AUT.ACCOUNT_SUSPENDED`, `AUT.ACCOUNT_LOCKED` still
+> exist in `auth.errors.ts` for future use but are not thrown by any code
+> path in this build (the JWT/API-key stack has been stripped).
 
 ---
 

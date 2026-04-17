@@ -25,14 +25,13 @@ import { AUT, DAT, VAL, GEN, SRV } from '@errors/error-codes';
 import { ErrorException } from '@errors/types/error-exception';
 
 // Direct usage — most cases
-throw new ErrorException(DAT.NOT_FOUND, { message: `TodoList ${id} not found` });
-throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, { message: `Cannot go from '${from}' to '${to}'` });
-throw new ErrorException(AUT.INVALID_CREDENTIALS);
-throw new ErrorException(AUT.TOKEN_EXPIRED);
-throw new ErrorException(AUT.ACCOUNT_SUSPENDED);
+throw new ErrorException(DAT.DEPARTMENT_NOT_FOUND, { message: `Parent department ${id} not found in this company.` });
+throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY);
+throw new ErrorException(AUT.UNAUTHENTICATED);
+throw new ErrorException(AUZ.CROSS_TENANT_ACCESS);
 
 // Static helpers for common parameterized patterns
-throw ErrorException.notFound('TodoList', id);
+throw ErrorException.notFound('Company', id);
 throw ErrorException.validation(zodError);       // converts Zod issues to field details
 throw ErrorException.validationFromCV(cvErrors);  // converts class-validator errors
 throw ErrorException.internal(cause);             // wraps unexpected errors (SRV.INTERNAL_ERROR)
@@ -43,6 +42,11 @@ throw new ErrorException(DAT.UNIQUE_VIOLATION, {
   details: [{ field: 'email', message: 'Already registered' }],
 });
 ```
+
+> Note: `AUT.INVALID_CREDENTIALS`, `AUT.TOKEN_EXPIRED`, `AUT.TOKEN_INVALID`,
+> `AUT.ACCOUNT_SUSPENDED`, `AUT.ACCOUNT_LOCKED` still live in the registry for
+> a future JWT stack but are unused by current code paths (mock auth only
+> raises `AUT.UNAUTHENTICATED`).
 
 ## Error Code Registry
 

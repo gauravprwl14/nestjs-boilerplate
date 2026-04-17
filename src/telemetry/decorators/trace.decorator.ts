@@ -44,7 +44,7 @@ export function Trace(options?: TraceOptions): MethodDecorator {
           attributes: spanAttributes,
           root: options?.root,
         },
-        (span) => {
+        span => {
           const handleError = (err: unknown): never => {
             span.setStatus({
               code: SpanStatusCode.ERROR,

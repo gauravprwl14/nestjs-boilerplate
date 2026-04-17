@@ -13,7 +13,9 @@ import { W3CTraceContextPropagator } from '@opentelemetry/core';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import {
   OTEL_DEFAULT_GRPC_ENDPOINT,
@@ -64,6 +66,12 @@ export function initOtelSdk(config: OtelConfig): void {
     exportIntervalMillis: OTEL_EXPORT_TIMEOUT_MS,
   });
 
+  // Logs pipeline: Pino auto-instrumentation emits LogRecords to the OTel Logs
+  // API; BatchLogRecordProcessor batches and ships them via OTLP to the
+  // collector, which forwards to Loki (see docker/grafana/otel-collector-config.yml).
+  const logExporter = new OTLPLogExporter({ url: endpoint });
+  const logRecordProcessor = new BatchLogRecordProcessor(logExporter);
+
   const resource = resourceFromAttributes({
     [RESOURCE_SERVICE_NAME]: config.serviceName,
     [RESOURCE_DEPLOYMENT_ENVIRONMENT]: environment,
@@ -73,13 +81,14 @@ export function initOtelSdk(config: OtelConfig): void {
     resource,
     traceExporter,
     metricReader,
+    logRecordProcessors: [logRecordProcessor],
     textMapPropagator: new W3CTraceContextPropagator(),
     instrumentations: [
       getNodeAutoInstrumentations({
         '@opentelemetry/instrumentation-http': {
-          ignoreIncomingRequestHook: (req) => {
+          ignoreIncomingRequestHook: req => {
             const url = req.url ?? '';
-            return OTEL_IGNORE_PATHS.some((pattern) => pattern.test(url));
+            return OTEL_IGNORE_PATHS.some(pattern => pattern.test(url));
           },
         },
         // Disable noisy fs instrumentation
@@ -91,6 +100,11 @@ export function initOtelSdk(config: OtelConfig): void {
         // HTTP instrumentation provides sufficient request/response tracing.
         '@opentelemetry/instrumentation-express': {
           enabled: false,
+        },
+        // Pino instrumentation: forwards every pino log to the OTel Logs API,
+        // where BatchLogRecordProcessor + OTLPLogExporter ship it to the collector.
+        '@opentelemetry/instrumentation-pino': {
+          enabled: true,
         },
       }),
     ],
@@ -108,7 +122,7 @@ export async function shutdownOtelSdk(): Promise<void> {
     return;
   }
 
-  const shutdownTimeout = new Promise<void>((resolve) =>
+  const shutdownTimeout = new Promise<void>(resolve =>
     setTimeout(resolve, OTEL_SHUTDOWN_TIMEOUT_MS),
   );
 

@@ -7,6 +7,12 @@ export enum ClsKey {
   REQUEST_ID = 'requestId',
   /** Authenticated user ID */
   USER_ID = 'userId',
+  /** The user's tenant (company) — drives multi-tenant filtering everywhere */
+  COMPANY_ID = 'companyId',
+  /** Direct department memberships of the authenticated user */
+  USER_DEPARTMENT_IDS = 'userDepartmentIds',
+  /** When true, the tenant-scope Prisma extension is bypassed (seed scripts only) */
+  BYPASS_TENANT_SCOPE = 'bypassTenantScope',
   /** OpenTelemetry trace ID */
   TRACE_ID = 'traceId',
   /** OpenTelemetry span ID */

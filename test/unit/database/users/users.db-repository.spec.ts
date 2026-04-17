@@ -1,70 +1,111 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { UserStatus } from '@prisma/client';
-import { PrismaService } from '@database/prisma.service';
+/**
+ * UsersDbRepository — user lookups bypass tenant scoping (user identity is
+ * resolved BEFORE CLS is populated) so we only mock the plain Prisma delegate.
+ * `findAuthContext` shapes the row into the `{ id, companyId, email, name,
+ * departmentIds }` contract consumed by MockAuthMiddleware.
+ */
 import { UsersDbRepository } from '@database/users/users.db-repository';
+import { PrismaService } from '@database/prisma.service';
 import { createMockPrisma } from '../../../helpers/mock-prisma';
 
 describe('UsersDbRepository', () => {
-  let repo: UsersDbRepository;
   let prisma: ReturnType<typeof createMockPrisma>;
+  let repo: UsersDbRepository;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     prisma = createMockPrisma();
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersDbRepository, { provide: PrismaService, useValue: prisma }],
-    }).compile();
-    repo = module.get(UsersDbRepository);
+    repo = new UsersDbRepository(prisma as unknown as PrismaService);
   });
 
-  describe('findActiveByEmail', () => {
-    it('should query by email and deletedAt: null', async () => {
-      prisma.user.findFirst.mockResolvedValue({ id: 'u1', email: 'a@b.c' });
-
-      const result = await repo.findActiveByEmail('a@b.c');
-
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { email: 'a@b.c', deletedAt: null },
+  describe('findAuthContext', () => {
+    it('should project the User row + pivot rows into a UserAuthContext', async () => {
+      // --- ARRANGE ---
+      (prisma.user as any).findUnique.mockResolvedValue({
+        id: 'u1',
+        companyId: 'c1',
+        email: 'a@b',
+        name: 'Alice',
+        departments: [{ departmentId: 'd1' }, { departmentId: 'd2' }],
       });
-      expect(result).toEqual({ id: 'u1', email: 'a@b.c' });
-    });
-  });
 
-  describe('findActiveById', () => {
-    it('should query by id, deletedAt: null, status: ACTIVE', async () => {
-      prisma.user.findFirst.mockResolvedValue({ id: 'u1' });
+      // --- ACT ---
+      const result = await repo.findAuthContext('u1');
 
-      await repo.findActiveById('u1');
-
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { id: 'u1', deletedAt: null, status: UserStatus.ACTIVE },
+      // --- ASSERT ---
+      expect(result).toEqual({
+        id: 'u1',
+        companyId: 'c1',
+        email: 'a@b',
+        name: 'Alice',
+        departmentIds: ['d1', 'd2'],
       });
-    });
-  });
-
-  describe('recordFailedLogin', () => {
-    it('should update failedLoginCount and lockedUntil', async () => {
-      const locked = new Date('2026-04-17T12:00:00Z');
-      prisma.user.update.mockResolvedValue({ id: 'u1' });
-
-      await repo.recordFailedLogin('u1', { count: 3, lockedUntil: locked });
-
-      expect(prisma.user.update).toHaveBeenCalledWith({
+      expect((prisma.user as any).findUnique).toHaveBeenCalledWith({
         where: { id: 'u1' },
-        data: { failedLoginCount: 3, lockedUntil: locked },
+        include: { departments: { select: { departmentId: true } } },
       });
+    });
+
+    it('should return null when the user does not exist', async () => {
+      // --- ARRANGE ---
+      (prisma.user as any).findUnique.mockResolvedValue(null);
+
+      // --- ACT ---
+      const out = await repo.findAuthContext('ghost');
+
+      // --- ASSERT ---
+      expect(out).toBeNull();
+    });
+
+    it('should return empty departmentIds when the user has no memberships', async () => {
+      // --- ARRANGE ---
+      (prisma.user as any).findUnique.mockResolvedValue({
+        id: 'u1',
+        companyId: 'c1',
+        email: 'a@b',
+        name: 'Alice',
+        departments: [],
+      });
+
+      // --- ACT ---
+      const out = await repo.findAuthContext('u1');
+
+      // --- ASSERT ---
+      expect(out?.departmentIds).toEqual([]);
+    });
+
+    it('should use the tx client when supplied', async () => {
+      // --- ARRANGE ---
+      const tx = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'u1',
+            companyId: 'c1',
+            email: 'a@b',
+            name: 'Alice',
+            departments: [{ departmentId: 'd1' }],
+          }),
+        },
+      } as any;
+
+      // --- ACT ---
+      await repo.findAuthContext('u1', tx);
+
+      // --- ASSERT ---
+      expect(tx.user.findUnique).toHaveBeenCalled();
+      expect((prisma.user as any).findUnique).not.toHaveBeenCalled();
     });
   });
 
-  describe('resetFailedLogin', () => {
-    it('should zero failedLoginCount and null lockedUntil', async () => {
-      prisma.user.update.mockResolvedValue({ id: 'u1' });
+  describe('BaseRepository delegation', () => {
+    it('should route through prisma.user via delegateFor', async () => {
+      // --- ARRANGE ---
+      (prisma.user as any).create.mockResolvedValue({ id: 'u1' });
 
-      await repo.resetFailedLogin('u1');
+      // --- ACT ---
+      await repo.create({ id: 'u1', name: 'A', email: 'a@b', companyId: 'c1' } as any);
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'u1' },
-        data: { failedLoginCount: 0, lockedUntil: null },
-      });
+      // --- ASSERT ---
+      expect((prisma.user as any).create).toHaveBeenCalled();
     });
   });
 });

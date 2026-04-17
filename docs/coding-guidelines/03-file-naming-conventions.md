@@ -2,38 +2,39 @@
 
 ## Pattern: `<kebab-case-name>.<type>.ts`
 
-| Type        | Suffix            | Example                                  |
-| ----------- | ----------------- | ---------------------------------------- |
-| Module      | `.module.ts`      | `todo-lists.module.ts`                   |
-| Controller  | `.controller.ts`  | `todo-lists.controller.ts`               |
-| Service     | `.service.ts`     | `todo-lists.service.ts`                  |
-| Repository  | `.repository.ts`  | `base.repository.ts`                     |
-| DTO         | `.dto.ts`         | `create-todo-list.dto.ts`                |
-| Guard       | `.guard.ts`       | `jwt-auth.guard.ts`                      |
-| Strategy    | `.strategy.ts`    | `jwt.strategy.ts`, `api-key.strategy.ts` |
-| Interceptor | `.interceptor.ts` | `logging.interceptor.ts`                 |
-| Filter      | `.filter.ts`      | `all-exceptions.filter.ts`               |
-| Pipe        | `.pipe.ts`        | `zod-validation.pipe.ts`                 |
-| Middleware  | `.middleware.ts`  | `request-id.middleware.ts`               |
-| Decorator   | `.decorator.ts`   | `current-user.decorator.ts`              |
-| Processor   | `.processor.ts`   | `todo-item.processor.ts`                 |
-| Constants   | `.constants.ts`   | `app.constants.ts`, `otel.constants.ts`  |
-| Interface   | `.interfaces.ts`  | `telemetry.interfaces.ts`                |
-| Schema      | `.schema.ts`      | `env.schema.ts`                          |
-| Unit test   | `.spec.ts`        | `todo-lists.service.spec.ts`             |
-| E2E test    | `.e2e-spec.ts`    | `todo-lists.e2e-spec.ts`                 |
+| Type        | Suffix            | Example                                      |
+| ----------- | ----------------- | -------------------------------------------- |
+| Module      | `.module.ts`      | `tweets.module.ts`, `departments.module.ts`  |
+| Controller  | `.controller.ts`  | `tweets.controller.ts`                       |
+| Service     | `.service.ts`     | `tweets.service.ts`                          |
+| Repository  | `.repository.ts`  | `base.repository.ts`                         |
+| DbRepository| `.db-repository.ts` | `tweets.db-repository.ts`                  |
+| DbService   | `.db-service.ts`  | `tweets.db-service.ts`                       |
+| DTO         | `.dto.ts`         | `create-tweet.dto.ts`                        |
+| Guard       | `.guard.ts`       | `auth-context.guard.ts`                      |
+| Extension   | `.extension.ts`   | `tenant-scope.extension.ts`                  |
+| Interceptor | `.interceptor.ts` | `logging.interceptor.ts`                     |
+| Filter      | `.filter.ts`      | `all-exceptions.filter.ts`                   |
+| Pipe        | `.pipe.ts`        | `zod-validation.pipe.ts`                     |
+| Middleware  | `.middleware.ts`  | `mock-auth.middleware.ts`                    |
+| Decorator   | `.decorator.ts`   | `current-user.decorator.ts`                  |
+| Constants   | `.constants.ts`   | `app.constants.ts`, `cls.constants.ts`       |
+| Interface   | `.interfaces.ts`  | `telemetry.interfaces.ts`                    |
+| Schema      | `.schema.ts`      | `env.schema.ts`                              |
+| Unit test   | `.spec.ts`        | `tweets.service.spec.ts`                     |
+| E2E test    | `.e2e-spec.ts`    | `tweets.e2e-spec.ts`                         |
 
 ## Symbol Naming
 
 | Symbol                  | Convention                                            | Example                                |
 | ----------------------- | ----------------------------------------------------- | -------------------------------------- |
-| Class                   | `PascalCase`                                          | `TodoListsService`, `ErrorException`   |
-| Interface               | `PascalCase`                                          | `ApiResponse`, `PaginatedResult`       |
-| Enum                    | `PascalCase` (Prisma generates these)                 | `TodoStatus`, `UserRole`               |
-| Function / method       | `camelCase`                                           | `findAll()`, `createTodoItem()`        |
-| Variable / parameter    | `camelCase`                                           | `todoList`, `userId`                   |
-| Constant (module-level) | `UPPER_SNAKE_CASE`                                    | `DEFAULT_APP_PORT`, `QUEUE_NAME`       |
-| Injection token         | `UPPER_SNAKE_CASE`                                    | `LOGGER_TOKEN`, `CONFIG_SERVICE_TOKEN` |
+| Class                   | `PascalCase`                                          | `TweetsService`, `ErrorException`      |
+| Interface               | `PascalCase`                                          | `ApiResponse`, `TimelineRow`           |
+| Enum                    | `PascalCase` (Prisma generates these)                 | `TweetVisibility`                      |
+| Function / method       | `camelCase`                                           | `findTimelineForUser()`, `buildTree()` |
+| Variable / parameter    | `camelCase`                                           | `companyId`, `departmentIds`           |
+| Constant (module-level) | `UPPER_SNAKE_CASE`                                    | `DEFAULT_APP_PORT`, `USER_ID_HEADER`   |
+| Injection token         | `UPPER_SNAKE_CASE`                                    | `LOGGER_TOKEN`                         |
 | Decorator               | `PascalCase` (class deco) or `camelCase` (param deco) | `@Trace()`, `@CurrentUser()`           |
 
 ## DTO Naming Pattern

@@ -65,29 +65,29 @@ providers: [ExampleService, { provide: EXAMPLE_SERVICE_TOKEN, useExisting: Examp
 
 ## Global Guard Registration
 
-The `JwtAuthGuard` is registered as a global guard in `AuthModule`:
+The `AuthContextGuard` is registered as a global guard in `AppModule`:
 
 ```typescript
-providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }];
+providers: [{ provide: APP_GUARD, useClass: AuthContextGuard }];
 ```
 
-Do **not** register additional `APP_GUARD` providers unless intentional — each one runs on every request.
+It verifies that `companyId` is present in CLS (populated by
+`MockAuthMiddleware`). Routes that must stay anonymous (Swagger, liveness
+probes) mark themselves with `@Public()`.
 
-## BullMQ Processor Registration
+Do **not** register additional `APP_GUARD` providers unless intentional — each
+one runs on every request.
 
-Processors must be registered both as a provider and linked to a queue name:
+## Async / Queue Processing
 
-```typescript
-// In the feature module:
-imports: [
-  QueueModule, // imports BullMQ Redis connection
-  BullModule.registerQueue({ name: QUEUE_NAME }),
-],
-providers: [
-  ExampleService,
-  ExampleProcessor, // decorated with @Processor(QUEUE_NAME)
-],
-```
+This build does not ship a queue. The previous BullMQ + Redis `QueueModule`
+has been removed from `src/` because the current assignment has no async-job
+requirement. If a future feature needs one:
+
+1. Reintroduce `QueueModule` under `src/queue/` with a BullMQ connection.
+2. Register the queue in the consuming feature module via
+   `BullModule.registerQueue({ name: QUEUE_NAME })`.
+3. Add the `@Processor(QUEUE_NAME)` class as a provider in the same module.
 
 ## Exporting Services
 

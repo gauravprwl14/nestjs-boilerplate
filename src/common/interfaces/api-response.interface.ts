@@ -61,9 +61,3 @@ export interface ApiResponseMeta {
   hasNextPage?: boolean;
   hasPreviousPage?: boolean;
 }
-
-/**
- * @deprecated Use {@link ErrorFieldDetail} from '@errors/interfaces/error.interfaces' instead.
- * Kept for backwards compatibility — will be removed in the next major version.
- */
-export type ApiErrorFieldDetail = ErrorFieldDetail;

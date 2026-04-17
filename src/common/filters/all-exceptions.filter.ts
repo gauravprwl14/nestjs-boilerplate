@@ -3,16 +3,18 @@ import {
   Catch,
   ExceptionFilter,
   HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { trace } from '@opentelemetry/api';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
 import { LogLevel } from '@logger/logger.interfaces';
 import { ErrorException } from '@errors/types/error-exception';
 import { ErrorCodeDefinition } from '@errors/interfaces/error.interfaces';
 import { handlePrismaError, isPrismaError } from '@errors/handlers/prisma-error.handler';
+import { GEN, VAL, AUT, AUZ, DAT, SRV } from '@errors/error-codes';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 
 /**
@@ -40,14 +42,39 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Extract request/trace IDs for correlation
     const requestId = (request as Request & { id?: string }).id ?? '';
-    const traceId = trace.getActiveSpan()?.spanContext()?.traceId ?? '';
+    const span = trace.getActiveSpan();
+    const traceId = span?.spanContext()?.traceId ?? '';
 
     // Normalise the exception to an ErrorException
     const error = this.normalise(exception);
 
+    // Attribute the error to the active HTTP server span so the trace carries
+    // the failure. Without this, errors thrown in middleware (e.g. MockAuth's
+    // AUT.UNAUTHENTICATED) or anywhere else reach the filter, but the span
+    // looks successful in Tempo — no exception event, no error status, no
+    // error.* attributes. That breaks the Traces Drilldown error panels and
+    // any TraceQL error queries.
+    if (span) {
+      const cause = exception instanceof Error ? exception : new Error(String(exception));
+      span.recordException(cause);
+      span.setAttributes({
+        'error.code': error.code,
+        'error.type': error.definition.errorType,
+        'error.category': error.definition.errorCategory,
+        'http.status_code': error.statusCode,
+        'http.method': request.method,
+        'http.url': request.url,
+      });
+      // Per OTel HTTP semconv: only 5xx should mark the server span as ERROR.
+      // 4xx is a correctly-rejected client request, not a server fault.
+      if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+      }
+    }
+
     // Log at appropriate level based on HTTP status:
     // 5xx -> ERROR (logError), 4xx -> WARN (log)
-    if (error.statusCode >= 500) {
+    if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.logError('http.error', error, {
         attributes: {
           requestId,
@@ -101,14 +128,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const httpResponse = exception.getResponse();
-      const message =
-        typeof httpResponse === 'string'
-          ? httpResponse
-          : Array.isArray((httpResponse as Record<string, unknown>)?.message)
-            ? ((httpResponse as Record<string, unknown>).message as string[]).join(', ')
-            : (httpResponse as Record<string, unknown>)?.message
-              ? String((httpResponse as Record<string, unknown>).message)
-              : exception.message;
+      let message = exception.message;
+
+      if (typeof httpResponse === 'string') {
+        message = httpResponse;
+      } else {
+        const responseMessage = (httpResponse as Record<string, unknown>)?.message;
+        if (Array.isArray(responseMessage)) {
+          message = responseMessage.join(', ');
+        } else if (typeof responseMessage === 'string') {
+          message = responseMessage;
+        } else if (typeof responseMessage === 'number' || typeof responseMessage === 'boolean') {
+          message = String(responseMessage);
+        }
+      }
 
       const fallbackDef = findDefinitionByStatus(status);
       return new ErrorException(fallbackDef, { message, cause: exception });
@@ -123,7 +156,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Only used for non-ErrorException HttpExceptions.
  */
 function findDefinitionByStatus(status: number): ErrorCodeDefinition {
-  const { GEN, VAL, AUT, AUZ, DAT, SRV } = require('@errors/error-codes');
   const map: Record<number, ErrorCodeDefinition> = {
     400: VAL.INVALID_INPUT,
     401: AUT.UNAUTHENTICATED,

@@ -1,5 +1,10 @@
 import { HttpStatus } from '@nestjs/common';
-import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '../interfaces/error.interfaces';
+import {
+  ErrorType,
+  ErrorCategory,
+  ErrorSeverity,
+  ErrorCodeDefinition,
+} from '../interfaces/error.interfaces';
 
 /**
  * Authentication error codes (AUT prefix).

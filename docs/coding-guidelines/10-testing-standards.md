@@ -5,155 +5,177 @@
 Every test must follow Arrange / Act / Assert with explicit comments:
 
 ```typescript
-it('should return 404 when todo list does not exist', async () => {
+it('should throw VAL0008 when departmentIds span another tenant', async () => {
   // Arrange
-  const userId = 'user-uuid';
-  const listId = 'non-existent-uuid';
-  todoListsDbMock.findByIdForUser.mockResolvedValue(null);
+  const dto = { content: 'hi', visibility: 'DEPARTMENTS', departmentIds: [ID1, ID2] };
+  cls.set(ClsKey.USER_ID, 'u-1'); cls.set(ClsKey.COMPANY_ID, 'c-1');
+  departmentsDbMock.findExistingIdsInCompany.mockResolvedValue([ID1]); // only 1 of 2 valid
 
   // Act
-  const act = () => service.findOne(userId, listId);
+  const act = () => service.create(dto);
 
   // Assert
   await expect(act()).rejects.toThrow(ErrorException);
-  await expect(act()).rejects.toMatchObject({ code: 'DAT0001' });
+  await expect(act()).rejects.toMatchObject({ code: 'VAL0008' });
 });
 ```
 
 ## Naming Convention
 
 ```
-describe('TodoListsService')          ← class name
-  describe('findOne')                  ← method name
-    it('should return the list when found and owned by user')
-    it('should throw ErrorException(DAT.NOT_FOUND) when list does not exist')
-    it('should throw ErrorException(DAT.NOT_FOUND) when list belongs to another user')
+describe('TweetsService')             ← class name
+  describe('create')                  ← method name
+    it('should throw AUT0001 when CLS has no userId')
+    it('should throw VAL0007 when DEPARTMENTS visibility is missing departmentIds')
+    it('should throw VAL0008 when referenced departments include cross-tenant ids')
+    it('should delegate to TweetsDbService.createWithTargets on the happy path')
 ```
 
 ## Mock Factories
 
-Create reusable mock factories in `test/helpers/`:
+Reusable factories live in `test/helpers/factories.ts`:
 
 ```typescript
-// test/helpers/todo-list.mock.ts
-export const createTodoListMock = (overrides: Partial<TodoList> = {}): TodoList => ({
-  id: 'list-uuid',
-  title: 'My List',
-  description: null,
-  userId: 'user-uuid',
+// test/helpers/factories.ts
+export const createTweetMock = (overrides: Partial<Tweet> = {}): Tweet => ({
+  id: 't-uuid',
+  companyId: 'c-uuid',
+  authorId: 'u-uuid',
+  content: 'hello',
+  visibility: 'COMPANY',
   createdAt: new Date(),
-  updatedAt: new Date(),
-  deletedAt: null,
   ...overrides,
 });
 ```
 
 ## Mocking the Database Layer
 
-Feature services now inject `*DbService` classes (not `PrismaService` directly). Mock at the `*DbService` level:
+Feature services inject `*DbService` classes (not `PrismaService` directly). Mock at the `*DbService` level:
 
 ```typescript
-import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
+import { TweetsDbService } from '@database/tweets/tweets.db-service';
+import { DepartmentsDbService } from '@database/departments/departments.db-service';
 
-const todoListsDbMock = {
-  createForUser: jest.fn(),
-  findActiveByUserId: jest.fn(),
-  findByIdForUser: jest.fn(),
-  updateById: jest.fn(),
-  softDeleteById: jest.fn(),
+const tweetsDbMock = {
+  createWithTargets: jest.fn(),
+  findTimelineForUser: jest.fn(),
+};
+const departmentsDbMock = {
+  findManyByCompany: jest.fn(),
+  findByIdInCompany: jest.fn(),
+  findExistingIdsInCompany: jest.fn(),
+  create: jest.fn(),
 };
 
 const module = await Test.createTestingModule({
-  providers: [TodoListsService, { provide: TodoListsDbService, useValue: todoListsDbMock }],
+  providers: [
+    TweetsService,
+    { provide: TweetsDbService, useValue: tweetsDbMock },
+    { provide: DepartmentsDbService, useValue: departmentsDbMock },
+    { provide: ClsService, useValue: new ClsService() /* or a mock */ },
+  ],
 }).compile();
 ```
 
-For repository-level unit tests (testing `*DbRepository` directly), use the shared Prisma mock from `test/helpers/prisma.mock.ts`:
+For repository-level unit tests (testing `*DbRepository` directly), use the shared Prisma mock from `test/helpers/mock-prisma.ts`:
 
 ```typescript
-import { createPrismaMock } from 'test/helpers/prisma.mock';
+import { createMockPrisma } from 'test/helpers/mock-prisma';
 
-const prismaMock = createPrismaMock();
+const prismaMock = createMockPrisma();
 
 const module = await Test.createTestingModule({
-  providers: [TodoListsDbRepository, { provide: PrismaService, useValue: prismaMock }],
+  providers: [TweetsDbRepository, { provide: PrismaService, useValue: prismaMock }],
 }).compile();
 ```
 
 ## Unit Test Setup Template
 
 ```typescript
-describe('TodoListsService', () => {
-  let service: TodoListsService;
-  let todoListsDbMock: jest.Mocked<TodoListsDbService>;
+describe('TweetsService', () => {
+  let service: TweetsService;
+  let tweetsDbMock: jest.Mocked<TweetsDbService>;
+  let departmentsDbMock: jest.Mocked<DepartmentsDbService>;
+  let cls: ClsService;
 
   beforeEach(async () => {
-    todoListsDbMock = {
-      createForUser: jest.fn(),
-      findActiveByUserId: jest.fn(),
-      findByIdForUser: jest.fn(),
-      updateById: jest.fn(),
-      softDeleteById: jest.fn(),
-    } as unknown as jest.Mocked<TodoListsDbService>;
+    tweetsDbMock = {
+      createWithTargets: jest.fn(),
+      findTimelineForUser: jest.fn(),
+    } as unknown as jest.Mocked<TweetsDbService>;
+
+    departmentsDbMock = {
+      findExistingIdsInCompany: jest.fn(),
+    } as unknown as jest.Mocked<DepartmentsDbService>;
 
     const module = await Test.createTestingModule({
+      imports: [ClsModule.forRoot({ global: true, middleware: { mount: false } })],
       providers: [
-        TodoListsService,
-        { provide: TodoListsDbService, useValue: todoListsDbMock },
-        { provide: AppLogger, useValue: { logEvent: jest.fn(), logError: jest.fn() } },
+        TweetsService,
+        { provide: TweetsDbService, useValue: tweetsDbMock },
+        { provide: DepartmentsDbService, useValue: departmentsDbMock },
       ],
     }).compile();
 
-    service = module.get(TodoListsService);
+    service = module.get(TweetsService);
+    cls = module.get(ClsService);
   });
 
   afterEach(() => jest.clearAllMocks());
 });
 ```
 
+## Integration Tests
+
+`test/integration/acl-matrix.spec.ts` runs the 13-case visibility matrix
+against a real PostgreSQL test database. Do NOT stub Postgres for this test —
+its whole purpose is to exercise the recursive CTE and composite FKs.
+
 ## E2E Test Template
 
 ```typescript
-describe('TodoLists (e2e)', () => {
+describe('Tweets (e2e)', () => {
   let app: INestApplication;
-  let accessToken: string;
+  let aliceId: string;
 
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
-    applyGlobalSetup(app); // pipes, filters, interceptors
+    applyGlobalSetup(app); // pipes, filters, interceptors, versioning
     await app.init();
-
-    // Register + login to get a token
-    accessToken = await loginTestUser(app);
+    aliceId = await seedAliceAndGetUserId();
   });
 
   afterAll(() => app.close());
 
-  it('POST /todo-lists → 201', async () => {
+  it('POST /tweets → 201', async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/todo-lists')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ title: 'E2E Test List' });
+      .post('/api/v1/tweets')
+      .set('x-user-id', aliceId)
+      .send({ content: 'hello', visibility: 'COMPANY' });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.title).toBe('E2E Test List');
+    expect(res.body.data.content).toBe('hello');
+  });
+
+  it('GET /timeline without x-user-id → 401', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/timeline');
+    expect(res.status).toBe(401);
+    expect(res.body.errors[0].code).toBe('AUT0001');
   });
 });
 ```
 
 ## Coverage Requirements
 
-| File type                                | Minimum line coverage |
-| ---------------------------------------- | --------------------- |
-| `*.service.ts`                           | 80%                   |
-| `*.repository.ts` (legacy feature repos) | 80%                   |
-| `*.db-repository.ts`                     | 80%                   |
-| `*.db-service.ts`                        | 80%                   |
-| `*.controller.ts`                        | 60% (covered by e2e)  |
-| `*.filter.ts`                            | 80%                   |
-| `*.guard.ts`                             | 80%                   |
+| File type                                 | Minimum line coverage |
+| ----------------------------------------- | --------------------- |
+| `*.service.ts`                            | 80%                   |
+| `*.db-repository.ts`                      | 80%                   |
+| `*.db-service.ts`                         | 80%                   |
+| `*.controller.ts`                         | 60% (covered by e2e)  |
+| `*.filter.ts`                             | 80%                   |
+| `*.guard.ts` / `*.middleware.ts`          | 80%                   |
+| `*.extension.ts` (tenant-scope)           | 80%                   |
 
-Run coverage: `npm run test:cov`
+Run coverage: `npm run test:cov`. Global threshold ≥ 70%.

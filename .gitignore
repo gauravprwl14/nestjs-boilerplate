@@ -19,3 +19,7 @@ docker-compose.override.yml
 
 # Git worktrees
 .worktrees/
+
+# Build artifacts
+tsconfig.build.tsbuildinfo
+yarn.lock

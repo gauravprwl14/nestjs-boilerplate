@@ -23,27 +23,22 @@ Each layer has a single responsibility. **Do not skip layers.** Feature services
 - Handle HTTP concerns only: parse params, call service, return data.
 - Do **not** call Prisma directly from a controller.
 - Do **not** catch errors in controllers — let filters handle them.
-- Always use `@ApiAuth()` composite decorator on protected controllers.
+- Declare mock auth via `@ApiSecurity('x-user-id')` so Swagger prompts for the header. Identity flows through CLS, not through controller arguments.
 - Always use `ParseUUIDPipe` on UUID path params.
 
 ```typescript
-@ApiTags('Todo Lists')
-@ApiAuth()
-@Controller('todo-lists')
-export class TodoListsController {
-  constructor(private readonly todoListsService: TodoListsService) {}
+@ApiTags('Tweets')
+@ApiSecurity('x-user-id')
+@Controller({ version: '1' })
+export class TweetsController {
+  constructor(private readonly service: TweetsService) {}
 
-  /**
-   * Creates a new todo list for the current user.
-   */
-  @Post()
-  @ApiOperation({ summary: 'Create a new todo list' })
-  @ApiResponse({ status: 201, description: 'Todo list created successfully' })
-  async create(
-    @CurrentUser('id') userId: string,
-    @Body() dto: CreateTodoListDto,
-  ): Promise<TodoList> {
-    return this.todoListsService.create(userId, dto);
+  @Post('tweets')
+  @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ZodValidationPipe(CreateTweetSchema))
+  @ApiOperation({ summary: 'Create a tweet (scoped to the caller\'s company).' })
+  async create(@Body() dto: CreateTweetDto): Promise<Tweet> {
+    return this.service.create(dto); // userId + companyId come from CLS, not the request
   }
 }
 ```
@@ -58,22 +53,22 @@ export class TodoListsController {
 
 ```typescript
 @Injectable()
-export class TodoListsService {
+export class TweetsService {
   constructor(
-    private readonly todoListsDb: TodoListsDbService,
-    private readonly logger: AppLogger,
+    private readonly tweetsDb: TweetsDbService,
+    private readonly departmentsDb: DepartmentsDbService,
+    private readonly cls: ClsService,
   ) {}
 
   /**
-   * Creates a new todo list owned by the given user.
-   * @throws {ErrorException} DAT0001 if the user does not exist
+   * Creates a tweet for the authenticated author (CLS).
+   * @throws {ErrorException} VAL0007 / VAL0008 on invalid department input
    */
-  @Trace('todo-lists.create')
-  async create(userId: string, dto: CreateTodoListDto): Promise<TodoList> {
-    return this.todoListsDb.createForUser(userId, {
-      title: dto.title,
-      description: dto.description,
-    });
+  @Trace('tweets.create')
+  async create(dto: CreateTweetDto): Promise<Tweet> {
+    const userId = this.cls.get<string>(ClsKey.USER_ID);
+    const companyId = this.cls.get<string>(ClsKey.COMPANY_ID);
+    // ... pre-validate departmentIds, then delegate to tweetsDb.createWithTargets
   }
 }
 ```
@@ -87,16 +82,24 @@ export class TodoListsService {
 
 ```typescript
 @Injectable()
-export class TodoListsDbRepository extends BaseRepository<TodoList, …> {
+export class DepartmentsDbRepository extends BaseRepository<Department, …> {
+  // Tenant-scoped repositories route through prisma.tenantScoped when the
+  // caller passed the plain root client.
   protected delegateFor(client: PrismaService | DbTransactionClient) {
-    return client.todoList;
+    if (client === this.prisma) {
+      return (this.prisma.tenantScoped as unknown as { department: Prisma.DepartmentDelegate }).department;
+    }
+    return (client as DbTransactionClient).department;
   }
 
   /**
-   * Returns a list scoped to the owning user (null if not found / not owned / deleted).
+   * Returns departments in the caller's tenant (extension adds `where.companyId` too).
    */
-  async findByIdForUser(userId: string, id: string, tx?: DbTransactionClient): Promise<TodoList | null> {
-    return this.client(tx).todoList.findFirst({ where: { id, userId, deletedAt: null } });
+  async findManyByCompany(companyId: string, tx?: DbTransactionClient): Promise<Department[]> {
+    return this.delegateFor(this.client(tx)).findMany({
+      where: { companyId },
+      orderBy: { name: 'asc' },
+    });
   }
 }
 ```
@@ -107,13 +110,13 @@ Always use `ErrorException` with domain constants for errors. Import definitions
 
 ```typescript
 // Good
-const list = await this.repo.findByIdAndUser(id, userId);
-if (!list) throw ErrorException.notFound('TodoList', id);
+const parent = await this.departmentsDb.findByIdInCompany(parentId, companyId);
+if (!parent) throw new ErrorException(DAT.DEPARTMENT_NOT_FOUND, {
+  message: `Parent department ${parentId} not found in this company.`,
+});
 
 // Also good — direct definition usage
-throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, {
-  message: `Cannot go from '${from}' to '${to}'`,
-});
+throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY);
 
 // Bad — no context, no structured code
 throw new Error('not found');

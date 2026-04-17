@@ -34,29 +34,27 @@ export const DEFAULT_PAGE = 1;
 /** Request ID header name */
 export const REQUEST_ID_HEADER = 'x-request-id';
 
-/** API Key header name */
-export const API_KEY_HEADER = 'x-api-key';
+/** Mock-auth header carrying the authenticated user's UUID */
+export const USER_ID_HEADER = 'x-user-id';
 
 /** Swagger docs path */
 export const SWAGGER_PATH = 'docs';
 
 /** Swagger title */
-export const SWAGGER_TITLE = 'AI-Native NestJS Backend API';
+export const SWAGGER_TITLE = 'Enterprise Twitter API';
 
 /** Swagger description */
-export const SWAGGER_DESCRIPTION = 'Todo application API with JWT + API Key authentication';
+export const SWAGGER_DESCRIPTION =
+  'Multi-tenant Twitter-style backend. Authenticate by passing x-user-id header (seed prints user ids).';
 
 /** Swagger version */
 export const SWAGGER_VERSION = '1.0';
 
-/** Public route metadata key */
+/** Public route metadata key — routes marked @Public() skip AuthContextGuard */
 export const IS_PUBLIC_KEY = 'isPublic';
 
-/** Roles metadata key */
-export const ROLES_KEY = 'roles';
+/** Default maximum tweets returned by the timeline endpoint */
+export const DEFAULT_TIMELINE_LIMIT = 100;
 
-/** Minimum secret length for JWT/API Key secrets */
-export const MIN_SECRET_LENGTH = 32;
-
-/** API Key prefix length for display */
-export const API_KEY_PREFIX_LENGTH = 8;
+/** Maximum tweet content length (chars) */
+export const MAX_TWEET_CONTENT_LENGTH = 280;

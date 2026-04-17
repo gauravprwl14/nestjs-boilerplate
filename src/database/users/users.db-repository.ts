@@ -1,8 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, User, UserStatus } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { BaseRepository } from '@database/base.repository';
 import { DbTransactionClient } from '@database/types';
+
+/**
+ * Shape the MockAuthMiddleware reads — the user's id, tenant, and direct
+ * department memberships. Everything downstream in CLS derives from this.
+ */
+export interface UserAuthContext {
+  id: string;
+  companyId: string;
+  email: string;
+  name: string;
+  departmentIds: string[];
+}
 
 /**
  * Repository for the User model. Only file outside src/database that touches
@@ -25,116 +37,31 @@ export class UsersDbRepository extends BaseRepository<
     return client.user;
   }
 
-  protected supportsSoftDelete = true;
-
   /**
-   * Finds a non-deleted user by email.
-   * @param email - The email address to look up
+   * Loads the auth context for a user: id, company, and every department they
+   * belong to. Returns null if the user does not exist. Used by MockAuthMiddleware
+   * to populate CLS; NOT tenant-scoped since the middleware runs before tenant
+   * context is established.
+   *
+   * @param id - User UUID
    * @param tx - Optional transaction client
-   * @returns The matching user or null
    */
-  async findActiveByEmail(email: string, tx?: DbTransactionClient): Promise<User | null> {
-    return this.client(tx).user.findFirst({ where: { email, deletedAt: null } });
-  }
-
-  /**
-   * Finds a non-deleted, ACTIVE user by id.
-   * @param id - The user's UUID
-   * @param tx - Optional transaction client
-   * @returns The matching user or null
-   */
-  async findActiveById(id: string, tx?: DbTransactionClient): Promise<User | null> {
-    return this.client(tx).user.findFirst({
-      where: { id, deletedAt: null, status: UserStatus.ACTIVE },
-    });
-  }
-
-  /**
-   * Records a failed login attempt and (optionally) locks the account.
-   * @param id - The user's UUID
-   * @param patch - Failed count and optional lock timestamp
-   * @param tx - Optional transaction client
-   * @returns The updated user
-   */
-  async recordFailedLogin(
-    id: string,
-    patch: { count: number; lockedUntil?: Date | null },
-    tx?: DbTransactionClient,
-  ): Promise<User> {
-    return this.client(tx).user.update({
+  async findAuthContext(id: string, tx?: DbTransactionClient): Promise<UserAuthContext | null> {
+    const user = await this.client(tx).user.findUnique({
       where: { id },
-      data: {
-        failedLoginCount: patch.count,
-        ...(patch.lockedUntil !== undefined ? { lockedUntil: patch.lockedUntil } : {}),
+      include: {
+        departments: { select: { departmentId: true } },
       },
     });
-  }
-
-  /**
-   * Zeroes the failed-login counter and clears the lock.
-   * @param id - The user's UUID
-   * @param tx - Optional transaction client
-   * @returns The updated user
-   */
-  async resetFailedLogin(id: string, tx?: DbTransactionClient): Promise<User> {
-    return this.client(tx).user.update({
-      where: { id },
-      data: { failedLoginCount: 0, lockedUntil: null },
-    });
-  }
-
-  /**
-   * Updates profile fields (firstName/lastName).
-   * @param id - The user's UUID
-   * @param patch - Fields to update
-   * @param tx - Optional transaction client
-   * @returns The updated user
-   */
-  async updateProfile(
-    id: string,
-    patch: { firstName?: string | null; lastName?: string | null },
-    tx?: DbTransactionClient,
-  ): Promise<User> {
-    return this.client(tx).user.update({ where: { id }, data: patch });
-  }
-
-  /**
-   * Updates just the password hash.
-   * @param id - The user's UUID
-   * @param passwordHash - The new bcrypt hash
-   * @param tx - Optional transaction client
-   * @returns The updated user
-   */
-  async updatePassword(id: string, passwordHash: string, tx?: DbTransactionClient): Promise<User> {
-    return this.client(tx).user.update({ where: { id }, data: { passwordHash } });
-  }
-
-  /**
-   * Finds a user by id regardless of status or deletedAt.
-   * @param id - The user's UUID
-   * @param tx - Optional transaction client
-   * @returns The matching user or null
-   */
-  async findById(id: string, tx?: DbTransactionClient): Promise<User | null> {
-    return this.client(tx).user.findUnique({ where: { id } });
-  }
-
-  /**
-   * Creates a user from a plain input shape.
-   * @param input - User creation fields
-   * @param tx - Optional transaction client
-   * @returns The created user
-   */
-  async createUser(
-    input: {
-      email: string;
-      passwordHash: string;
-      firstName?: string | null;
-      lastName?: string | null;
-      status?: UserStatus;
-    },
-    tx?: DbTransactionClient,
-  ): Promise<User> {
-    return this.client(tx).user.create({ data: input });
+    if (!user) return null;
+    return {
+      id: user.id,
+      companyId: user.companyId,
+      email: user.email,
+      name: user.name,
+      departmentIds: (
+        user as unknown as { departments: Array<{ departmentId: string }> }
+      ).departments.map(d => d.departmentId),
+    };
   }
 }

@@ -38,36 +38,6 @@ export class AppConfigService {
     };
   }
 
-  // ─── Redis config ─────────────────────────────────────────────────────────────
-
-  /**
-   * Redis connection config.
-   */
-  get redis() {
-    return {
-      host: this.configService.get('REDIS_HOST', { infer: true }),
-      port: this.configService.get('REDIS_PORT', { infer: true }),
-      password: this.configService.get('REDIS_PASSWORD', { infer: true }),
-      db: this.configService.get('REDIS_DB', { infer: true }),
-    };
-  }
-
-  // ─── Auth config ──────────────────────────────────────────────────────────────
-
-  /**
-   * Authentication/authorization secrets and settings.
-   */
-  get auth() {
-    return {
-      jwtAccessSecret: this.configService.get('JWT_ACCESS_SECRET', { infer: true }),
-      jwtAccessExpiration: this.configService.get('JWT_ACCESS_EXPIRATION', { infer: true }),
-      jwtRefreshSecret: this.configService.get('JWT_REFRESH_SECRET', { infer: true }),
-      jwtRefreshExpiration: this.configService.get('JWT_REFRESH_EXPIRATION', { infer: true }),
-      apiKeyEncryptionSecret: this.configService.get('API_KEY_ENCRYPTION_SECRET', { infer: true }),
-      bcryptRounds: this.configService.get('BCRYPT_ROUNDS', { infer: true }),
-    };
-  }
-
   // ─── OTel config ──────────────────────────────────────────────────────────────
 
   /**
@@ -82,18 +52,6 @@ export class AppConfigService {
     };
   }
 
-  // ─── Throttle config ──────────────────────────────────────────────────────────
-
-  /**
-   * Rate-limiting (throttle) config.
-   */
-  get throttle() {
-    return {
-      ttl: this.configService.get('THROTTLE_TTL', { infer: true }),
-      limit: this.configService.get('THROTTLE_LIMIT', { infer: true }),
-    };
-  }
-
   // ─── CORS config ──────────────────────────────────────────────────────────────
 
   /**
@@ -104,7 +62,7 @@ export class AppConfigService {
     const raw = this.configService.get('CORS_ORIGINS', { infer: true });
     const origins = raw
       .split(',')
-      .map((o) => o.trim())
+      .map(o => o.trim())
       .filter(Boolean);
     return { origins };
   }

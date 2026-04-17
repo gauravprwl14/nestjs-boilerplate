@@ -20,24 +20,30 @@ processors:
 exporters:
   # Traces → Tempo
   otlp/tempo:
-    endpoint: tempo:4317
+    endpoint: ${env:TEMPO_OTLP_GRPC_ENDPOINT}
     tls:
       insecure: true
 
-  # Metrics → Prometheus (scraped by Prometheus on port 8889)
-  prometheus:
-    endpoint: "0.0.0.0:8889"
-    namespace: app
+  # Metrics → Prometheus via remote-write (push). Prometheus must be started
+  # with --web.enable-remote-write-receiver (set in docker-compose.yml).
+  prometheusremotewrite:
+    endpoint: ${env:PROMETHEUS_REMOTE_WRITE_URL}
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+    external_labels:
+      source: otel-collector
 
   # Logs → Loki
   otlphttp/loki:
-    endpoint: http://loki:3100/otlp
+    endpoint: ${env:LOKI_OTLP_ENDPOINT}
     tls:
       insecure: true
 
   # Debug exporter — prints to stdout (useful for local development)
   debug:
-    verbosity: basic
+    verbosity: detailed
 
 service:
   pipelines:
@@ -49,7 +55,7 @@ service:
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [prometheus, debug]
+      exporters: [prometheusremotewrite, debug]
 
     logs:
       receivers: [otlp]
@@ -58,4 +64,4 @@ service:
 
   telemetry:
     logs:
-      level: warn
+      level: info

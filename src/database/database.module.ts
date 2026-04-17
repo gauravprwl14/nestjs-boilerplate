@@ -3,14 +3,12 @@ import { PrismaModule } from '@database/prisma.module';
 import { DatabaseService } from '@database/database.service';
 import { UsersDbRepository } from '@database/users/users.db-repository';
 import { UsersDbService } from '@database/users/users.db-service';
-import { AuthCredentialsDbRepository } from '@database/auth-credentials/auth-credentials.db-repository';
-import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
-import { TodoListsDbRepository } from '@database/todo-lists/todo-lists.db-repository';
-import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
-import { TodoItemsDbRepository } from '@database/todo-items/todo-items.db-repository';
-import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
-import { TagsDbRepository } from '@database/tags/tags.db-repository';
-import { TagsDbService } from '@database/tags/tags.db-service';
+import { CompaniesDbRepository } from '@database/companies/companies.db-repository';
+import { CompaniesDbService } from '@database/companies/companies.db-service';
+import { DepartmentsDbRepository } from '@database/departments/departments.db-repository';
+import { DepartmentsDbService } from '@database/departments/departments.db-service';
+import { TweetsDbRepository } from '@database/tweets/tweets.db-repository';
+import { TweetsDbService } from '@database/tweets/tweets.db-service';
 
 /**
  * Global database module. Aggregates every per-entity DbService + DbRepository
@@ -24,22 +22,19 @@ import { TagsDbService } from '@database/tags/tags.db-service';
     DatabaseService,
     UsersDbRepository,
     UsersDbService,
-    AuthCredentialsDbRepository,
-    AuthCredentialsDbService,
-    TodoListsDbRepository,
-    TodoListsDbService,
-    TodoItemsDbRepository,
-    TodoItemsDbService,
-    TagsDbRepository,
-    TagsDbService,
+    CompaniesDbRepository,
+    CompaniesDbService,
+    DepartmentsDbRepository,
+    DepartmentsDbService,
+    TweetsDbRepository,
+    TweetsDbService,
   ],
   exports: [
     DatabaseService,
     UsersDbService,
-    AuthCredentialsDbService,
-    TodoListsDbService,
-    TodoItemsDbService,
-    TagsDbService,
+    CompaniesDbService,
+    DepartmentsDbService,
+    TweetsDbService,
   ],
 })
 export class DatabaseModule {}

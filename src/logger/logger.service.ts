@@ -136,7 +136,9 @@ export class AppLogger implements IAppLogger, LoggerService {
     const span = trace.getActiveSpan();
     if (span) {
       const sanitized = sanitizeAttributes(attributes as Record<string, unknown>);
-      span.setAttributes(sanitized as Record<string, string | number | boolean | string[] | number[] | boolean[]>);
+      span.setAttributes(
+        sanitized as Record<string, string | number | boolean | string[] | number[] | boolean[]>,
+      );
     }
   }
 
@@ -195,10 +197,7 @@ export class AppLogger implements IAppLogger, LoggerService {
   /** NestJS error → Pino error. */
   error(message: unknown, stack?: string, context?: string): void {
     this.resolveContext(context);
-    this.pinoLogger.error(
-      { context: context ?? this.context, stack },
-      String(message),
-    );
+    this.pinoLogger.error({ context: context ?? this.context, stack }, String(message));
   }
 
   /** NestJS fatal → Pino fatal. */
