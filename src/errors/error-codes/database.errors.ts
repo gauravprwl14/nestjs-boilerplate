@@ -102,4 +102,28 @@ export const DAT = {
     retryable: false,
     userFacing: true,
   },
+  /** The requested department does not exist within the caller's tenant */
+  DEPARTMENT_NOT_FOUND: {
+    code: 'DAT0009',
+    message: 'Department not found',
+    httpStatus: HttpStatus.NOT_FOUND,
+    errorType: ErrorType.DATABASE,
+    errorCategory: ErrorCategory.CLIENT,
+    messageKey: 'error.database.DAT0009.department_not_found',
+    severity: ErrorSeverity.WARNING,
+    retryable: false,
+    userFacing: true,
+  },
+  /** The requested company does not exist */
+  COMPANY_NOT_FOUND: {
+    code: 'DAT0010',
+    message: 'Company not found',
+    httpStatus: HttpStatus.NOT_FOUND,
+    errorType: ErrorType.DATABASE,
+    errorCategory: ErrorCategory.CLIENT,
+    messageKey: 'error.database.DAT0010.company_not_found',
+    severity: ErrorSeverity.WARNING,
+    retryable: false,
+    userFacing: true,
+  },
 } as const satisfies Record<string, ErrorCodeDefinition>;

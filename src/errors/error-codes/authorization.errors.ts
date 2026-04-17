@@ -42,4 +42,21 @@ export const AUZ = {
     retryable: false,
     userFacing: true,
   },
+  /**
+   * Caller attempted to read or write a record belonging to another tenant.
+   * Fired by the Prisma tenant-scope extension when a write's companyId does
+   * not match the CLS-resolved companyId. Should be impossible from the HTTP
+   * layer if the middleware + guard are wired — treat as a defensive backstop.
+   */
+  CROSS_TENANT_ACCESS: {
+    code: 'AUZ0004',
+    message: 'Cross-tenant access denied',
+    httpStatus: HttpStatus.FORBIDDEN,
+    errorType: ErrorType.AUTHORIZATION,
+    errorCategory: ErrorCategory.SECURITY,
+    messageKey: 'error.authorization.AUZ0004.cross_tenant_access',
+    severity: ErrorSeverity.ERROR,
+    retryable: false,
+    userFacing: false,
+  },
 } as const satisfies Record<string, ErrorCodeDefinition>;

@@ -78,4 +78,28 @@ export const VAL = {
     retryable: false,
     userFacing: true,
   },
+  /** A department-scoped tweet was created without any target departmentIds */
+  DEPARTMENT_IDS_REQUIRED: {
+    code: 'VAL0007',
+    message: 'departmentIds are required for DEPARTMENTS and DEPARTMENTS_AND_SUBDEPARTMENTS visibility',
+    httpStatus: HttpStatus.BAD_REQUEST,
+    errorType: ErrorType.VALIDATION,
+    errorCategory: ErrorCategory.CLIENT,
+    messageKey: 'error.validation.VAL0007.department_ids_required',
+    severity: ErrorSeverity.WARNING,
+    retryable: false,
+    userFacing: true,
+  },
+  /** One or more referenced departments do not belong to the caller's company */
+  DEPARTMENT_NOT_IN_COMPANY: {
+    code: 'VAL0008',
+    message: 'One or more departments do not belong to your company',
+    httpStatus: HttpStatus.BAD_REQUEST,
+    errorType: ErrorType.VALIDATION,
+    errorCategory: ErrorCategory.CLIENT,
+    messageKey: 'error.validation.VAL0008.department_not_in_company',
+    severity: ErrorSeverity.WARNING,
+    retryable: false,
+    userFacing: true,
+  },
 } as const satisfies Record<string, ErrorCodeDefinition>;

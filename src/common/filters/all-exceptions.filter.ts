@@ -13,6 +13,7 @@ import { LogLevel } from '@logger/logger.interfaces';
 import { ErrorException } from '@errors/types/error-exception';
 import { ErrorCodeDefinition } from '@errors/interfaces/error.interfaces';
 import { handlePrismaError, isPrismaError } from '@errors/handlers/prisma-error.handler';
+import { GEN, VAL, AUT, AUZ, DAT, SRV } from '@errors/error-codes';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 
 /**
@@ -123,7 +124,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
  * Only used for non-ErrorException HttpExceptions.
  */
 function findDefinitionByStatus(status: number): ErrorCodeDefinition {
-  const { GEN, VAL, AUT, AUZ, DAT, SRV } = require('@errors/error-codes');
   const map: Record<number, ErrorCodeDefinition> = {
     400: VAL.INVALID_INPUT,
     401: AUT.UNAUTHENTICATED,
