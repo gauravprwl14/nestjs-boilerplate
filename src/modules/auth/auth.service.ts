@@ -4,6 +4,8 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
+import { DatabaseService } from '@database/database.service';
+import { DbTransactionClient } from '@database/types';
 import { UsersDbService } from '@database/users/users.db-service';
 import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { ErrorException } from '@errors/types/error-exception';
@@ -42,11 +44,14 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly usersDb: UsersDbService,
     private readonly authCredentialsDb: AuthCredentialsDbService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   /**
    * Registers a new user with the provided credentials.
-   * Checks for email uniqueness, hashes password, creates user, generates tokens.
+   * Checks for email uniqueness, hashes password, then atomically creates the
+   * user row and issues a refresh token inside a single transaction — so a
+   * token-issuance failure rolls back the user row and leaves no orphan records.
    *
    * @param dto - Registration data
    * @returns User profile and token pair
@@ -62,17 +67,22 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(dto.password);
 
-    const user = await this.usersDb.create({
-      email: dto.email,
-      passwordHash,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      status: UserStatus.ACTIVE,
+    const { user, tokens } = await this.databaseService.runInTransaction(async tx => {
+      const createdUser = await this.usersDb.create(
+        {
+          email: dto.email,
+          passwordHash,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          status: UserStatus.ACTIVE,
+        },
+        tx,
+      );
+      const generated = await this.generateTokens(createdUser, tx);
+      return { user: createdUser, tokens: generated };
     });
 
-    const tokens = await this.generateTokens(user);
     const { passwordHash: _, ...safeUser } = user;
-
     return { user: safeUser, tokens };
   }
 
@@ -184,11 +194,14 @@ export class AuthService {
 
   /**
    * Generates an access/refresh token pair for a user and stores the refresh token.
+   * When called within a transaction (e.g. from `register`), pass `tx` so the
+   * refresh-token insert participates in the same atomic unit.
    *
    * @param user - The user to generate tokens for
+   * @param tx - Optional transaction client; omit for non-transactional callers
    * @returns Access token and refresh token strings
    */
-  async generateTokens(user: User): Promise<TokenPair> {
+  async generateTokens(user: User, tx?: DbTransactionClient): Promise<TokenPair> {
     const jti = uuidv4();
     const refreshJti = uuidv4();
 
@@ -227,11 +240,10 @@ export class AuthService {
     const decoded = this.jwtService.decode(refreshToken) as { exp: number };
     const expiresAt = new Date(decoded.exp * 1000);
 
-    await this.authCredentialsDb.issueRefreshToken({
-      token: refreshToken,
-      userId: user.id,
-      expiresAt,
-    });
+    await this.authCredentialsDb.issueRefreshToken(
+      { token: refreshToken, userId: user.id, expiresAt },
+      tx,
+    );
 
     return { accessToken, refreshToken };
   }

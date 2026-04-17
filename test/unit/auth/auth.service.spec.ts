@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '@modules/auth/auth.service';
 import { UsersDbService } from '@database/users/users.db-service';
 import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
+import { DatabaseService } from '@database/database.service';
 import { AppConfigService } from '@config/config.service';
 import { createMockConfig } from '../../helpers/mock-config';
 import { createTestUser } from '../../helpers/factories';
@@ -38,18 +39,26 @@ const createMockJwtService = () => ({
   verify: jest.fn(),
 });
 
+const createMockDatabaseService = () => ({
+  runInTransaction: jest
+    .fn()
+    .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn('tx-stub')),
+});
+
 describe('AuthService', () => {
   let service: AuthService;
   let mockAuthCredentialsDb: ReturnType<typeof createMockAuthCredentialsDbService>;
   let mockConfig: ReturnType<typeof createMockConfig>;
   let mockUsersDb: ReturnType<typeof createMockUsersDbService>;
   let mockJwtService: ReturnType<typeof createMockJwtService>;
+  let mockDatabaseService: ReturnType<typeof createMockDatabaseService>;
 
   beforeEach(async () => {
     mockAuthCredentialsDb = createMockAuthCredentialsDbService();
     mockConfig = createMockConfig();
     mockUsersDb = createMockUsersDbService();
     mockJwtService = createMockJwtService();
+    mockDatabaseService = createMockDatabaseService();
 
     // Set up default mock for issueRefreshToken (needed for generateTokens)
     mockAuthCredentialsDb.issueRefreshToken.mockResolvedValue({
@@ -68,6 +77,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: AuthCredentialsDbService, useValue: mockAuthCredentialsDb },
         { provide: UsersDbService, useValue: mockUsersDb },
+        { provide: DatabaseService, useValue: mockDatabaseService },
       ],
     }).compile();
 
