@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User, UserStatus } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
-import { BaseRepository } from '@database/repositories/base.repository';
+import { BaseRepository } from '@database/base.repository';
+import { DbTransactionClient } from '@database/types';
 
 /**
  * Repository for User model operations.
@@ -20,9 +21,8 @@ export class UsersRepository extends BaseRepository<
     super(prisma);
   }
 
-  /** Returns the Prisma user delegate. */
-  protected get delegate() {
-    return this.prisma.user;
+  protected delegateFor(client: PrismaService | DbTransactionClient) {
+    return client.user;
   }
 
   /**

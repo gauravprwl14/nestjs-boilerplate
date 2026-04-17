@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, Tag } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
-import { BaseRepository } from '@database/repositories/base.repository';
+import { BaseRepository } from '@database/base.repository';
+import { DbTransactionClient } from '@database/types';
 
 /**
  * Repository for Tag model operations.
@@ -19,7 +20,7 @@ export class TagsRepository extends BaseRepository<
     super(prisma);
   }
 
-  protected get delegate() {
-    return this.prisma.tag;
+  protected delegateFor(client: PrismaService | DbTransactionClient) {
+    return client.tag;
   }
 }

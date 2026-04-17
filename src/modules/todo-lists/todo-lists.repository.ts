@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, TodoList } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
-import { BaseRepository } from '@database/repositories/base.repository';
+import { BaseRepository } from '@database/base.repository';
+import { DbTransactionClient } from '@database/types';
 import { PaginationParams, PaginatedResult } from '@common/interfaces';
 
 /**
@@ -21,17 +22,14 @@ export class TodoListsRepository extends BaseRepository<
     super(prisma);
   }
 
-  protected get delegate() {
-    return this.prisma.todoList;
+  protected delegateFor(client: PrismaService | DbTransactionClient) {
+    return client.todoList;
   }
 
   /**
    * Finds paginated todo lists belonging to a specific user (excludes soft-deleted).
    */
-  async findByUserId(
-    userId: string,
-    params: PaginationParams,
-  ): Promise<PaginatedResult<TodoList>> {
+  async findByUserId(userId: string, params: PaginationParams): Promise<PaginatedResult<TodoList>> {
     return this.findManyPaginated(params, {
       userId,
       deletedAt: null,

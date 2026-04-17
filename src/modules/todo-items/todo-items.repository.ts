@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, TodoItem, TodoStatus, TodoPriority } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
-import { BaseRepository } from '@database/repositories/base.repository';
+import { BaseRepository } from '@database/base.repository';
+import { DbTransactionClient } from '@database/types';
 import { PaginationParams, PaginatedResult } from '@common/interfaces';
 
 export interface TodoItemFilters {
@@ -32,8 +33,8 @@ export class TodoItemsRepository extends BaseRepository<
     super(prisma);
   }
 
-  protected get delegate() {
-    return this.prisma.todoItem;
+  protected delegateFor(client: PrismaService | DbTransactionClient) {
+    return client.todoItem;
   }
 
   /**
