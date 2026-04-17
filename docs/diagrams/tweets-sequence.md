@@ -30,12 +30,12 @@ sequenceDiagram
     TC->>TS: create(dto)
     alt visibility != COMPANY
       TS->>DS: findExistingIdsInCompany(dto.departmentIds, companyId)
-      Note right of DS: tenant-scope extension injects where.companyId;\ncross-tenant ids silently drop
+      Note right of DS: tenant-scope extension injects where.companyId<br/>cross-tenant ids silently drop
       DS-->>TS: subset that exists in this tenant
       TS->>TS: length mismatch → throw VAL0008 DEPARTMENT_NOT_IN_COMPANY
     end
     TS->>TDS: createWithTargets(...)
-    TDS->>PG: BEGIN; INSERT tweets; INSERT tweet_departments (flat, companyId per row); COMMIT
+    TDS->>PG: BEGIN → INSERT tweets → INSERT tweet_departments (flat, companyId per row) → COMMIT
     PG-->>TDS: Tweet
     TDS-->>TS: Tweet
     TS-->>TC: Tweet
