@@ -38,36 +38,6 @@ export class AppConfigService {
     };
   }
 
-  // ─── Redis config ─────────────────────────────────────────────────────────────
-
-  /**
-   * Redis connection config.
-   */
-  get redis() {
-    return {
-      host: this.configService.get('REDIS_HOST', { infer: true }),
-      port: this.configService.get('REDIS_PORT', { infer: true }),
-      password: this.configService.get('REDIS_PASSWORD', { infer: true }),
-      db: this.configService.get('REDIS_DB', { infer: true }),
-    };
-  }
-
-  // ─── Auth config ──────────────────────────────────────────────────────────────
-
-  /**
-   * Authentication/authorization secrets and settings.
-   */
-  get auth() {
-    return {
-      jwtAccessSecret: this.configService.get('JWT_ACCESS_SECRET', { infer: true }),
-      jwtAccessExpiration: this.configService.get('JWT_ACCESS_EXPIRATION', { infer: true }),
-      jwtRefreshSecret: this.configService.get('JWT_REFRESH_SECRET', { infer: true }),
-      jwtRefreshExpiration: this.configService.get('JWT_REFRESH_EXPIRATION', { infer: true }),
-      apiKeyEncryptionSecret: this.configService.get('API_KEY_ENCRYPTION_SECRET', { infer: true }),
-      bcryptRounds: this.configService.get('BCRYPT_ROUNDS', { infer: true }),
-    };
-  }
-
   // ─── OTel config ──────────────────────────────────────────────────────────────
 
   /**
@@ -79,18 +49,6 @@ export class AppConfigService {
       serviceName: this.configService.get('OTEL_SERVICE_NAME', { infer: true }),
       exporterEndpoint: this.configService.get('OTEL_EXPORTER_OTLP_ENDPOINT', { infer: true }),
       exporterProtocol: this.configService.get('OTEL_EXPORTER_OTLP_PROTOCOL', { infer: true }),
-    };
-  }
-
-  // ─── Throttle config ──────────────────────────────────────────────────────────
-
-  /**
-   * Rate-limiting (throttle) config.
-   */
-  get throttle() {
-    return {
-      ttl: this.configService.get('THROTTLE_TTL', { infer: true }),
-      limit: this.configService.get('THROTTLE_LIMIT', { infer: true }),
     };
   }
 

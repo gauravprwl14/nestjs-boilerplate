@@ -7,9 +7,11 @@ config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
 config({ path: '.env' });
 
 export default defineConfig({
-  earlyAccess: true,
   schema: path.join(__dirname, 'src', 'database', 'prisma', 'schema.prisma'),
   datasource: {
-    url: process.env.DATABASE_URL!,
+    url: process.env.DATABASE_URL,
+  },
+  migrations: {
+    seed: 'ts-node --transpile-only --project prisma/tsconfig.json prisma/seed.ts',
   },
 });

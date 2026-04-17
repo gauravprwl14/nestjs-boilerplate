@@ -30,7 +30,8 @@
     "prepare": "husky"
   },
   "prisma": {
-    "schema": "src/database/prisma/schema.prisma"
+    "schema": "src/database/prisma/schema.prisma",
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
   },
   "lint-staged": {
     "*.ts": [
@@ -130,6 +131,7 @@
     "prisma": "^7.7.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.9",
+    "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
   }
 }
