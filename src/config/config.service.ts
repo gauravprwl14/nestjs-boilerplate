@@ -62,7 +62,7 @@ export class AppConfigService {
     const raw = this.configService.get('CORS_ORIGINS', { infer: true });
     const origins = raw
       .split(',')
-      .map((o) => o.trim())
+      .map(o => o.trim())
       .filter(Boolean);
     return { origins };
   }

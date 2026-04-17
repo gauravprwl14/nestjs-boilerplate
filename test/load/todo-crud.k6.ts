@@ -29,7 +29,7 @@ export default function () {
     JSON.stringify({ email, password, firstName: 'Test', lastName: 'User' }),
     { headers: { 'Content-Type': 'application/json' } },
   );
-  check(registerRes, { 'register: status 201': (r) => r.status === 201 });
+  check(registerRes, { 'register: status 201': r => r.status === 201 });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const registerBody = registerRes.json() as any;
@@ -44,12 +44,10 @@ export default function () {
   };
 
   // ─── Login ───────────────────────────────────────────────────────────────
-  const loginRes = http.post(
-    `${BASE_URL}/auth/login`,
-    JSON.stringify({ email, password }),
-    { headers: { 'Content-Type': 'application/json' } },
-  );
-  check(loginRes, { 'login: status 200': (r) => r.status === 200 });
+  const loginRes = http.post(`${BASE_URL}/auth/login`, JSON.stringify({ email, password }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  check(loginRes, { 'login: status 200': r => r.status === 200 });
 
   // ─── Create Todo List ─────────────────────────────────────────────────────
   const createListRes = http.post(
@@ -57,7 +55,7 @@ export default function () {
     JSON.stringify({ title: 'My k6 List', description: 'Created by load test' }),
     { headers: authHeaders },
   );
-  check(createListRes, { 'create list: status 201': (r) => r.status === 201 });
+  check(createListRes, { 'create list: status 201': r => r.status === 201 });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const listBody = createListRes.json() as any;
@@ -72,7 +70,7 @@ export default function () {
     JSON.stringify({ title: 'My k6 Task', description: 'A test task', priority: 'MEDIUM' }),
     { headers: authHeaders },
   );
-  check(createItemRes, { 'create item: status 201': (r) => r.status === 201 });
+  check(createItemRes, { 'create item: status 201': r => r.status === 201 });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemBody = createItemRes.json() as any;
@@ -87,23 +85,19 @@ export default function () {
     JSON.stringify({ status: 'IN_PROGRESS' }),
     { headers: authHeaders },
   );
-  check(updateRes, { 'update item: status 200': (r) => r.status === 200 });
+  check(updateRes, { 'update item: status 200': r => r.status === 200 });
 
   // ─── Delete Item ──────────────────────────────────────────────────────────
-  const deleteItemRes = http.del(
-    `${BASE_URL}/todo-lists/${listId}/items/${itemId}`,
-    null,
-    { headers: authHeaders },
-  );
-  check(deleteItemRes, { 'delete item: status 200': (r) => r.status === 200 });
+  const deleteItemRes = http.del(`${BASE_URL}/todo-lists/${listId}/items/${itemId}`, null, {
+    headers: authHeaders,
+  });
+  check(deleteItemRes, { 'delete item: status 200': r => r.status === 200 });
 
   // ─── Delete List ──────────────────────────────────────────────────────────
-  const deleteListRes = http.del(
-    `${BASE_URL}/todo-lists/${listId}`,
-    null,
-    { headers: authHeaders },
-  );
-  check(deleteListRes, { 'delete list: status 200': (r) => r.status === 200 });
+  const deleteListRes = http.del(`${BASE_URL}/todo-lists/${listId}`, null, {
+    headers: authHeaders,
+  });
+  check(deleteListRes, { 'delete list: status 200': r => r.status === 200 });
 
   sleep(0.5);
 }

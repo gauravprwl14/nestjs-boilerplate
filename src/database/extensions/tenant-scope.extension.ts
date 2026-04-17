@@ -46,7 +46,7 @@ const WRITE_OPS = new Set([
  * must keep writes flat and pre-validate IDs. See README for details.
  */
 export const tenantScopeExtension = (cls: ClsService) =>
-  Prisma.defineExtension((prisma) =>
+  Prisma.defineExtension(prisma =>
     prisma.$extends({
       name: 'tenant-scope',
       query: {
@@ -113,7 +113,7 @@ function enforceWriteTenant(
   } else if (operation === 'createMany') {
     const data = a.data;
     if (Array.isArray(data)) {
-      next.data = data.map((row) => enforceRow(row, companyId, model));
+      next.data = data.map(row => enforceRow(row, companyId, model));
     } else {
       next.data = enforceRow(data, companyId, model);
     }

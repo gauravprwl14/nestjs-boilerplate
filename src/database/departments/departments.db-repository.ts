@@ -73,7 +73,7 @@ export class DepartmentsDbRepository extends BaseRepository<
       where: { id: { in: ids }, companyId },
       select: { id: true },
     } as unknown as { where: Prisma.DepartmentWhereInput });
-    return (rows as unknown as Array<{ id: string }>).map((r) => r.id);
+    return (rows as unknown as Array<{ id: string }>).map(r => r.id);
   }
 
   /**

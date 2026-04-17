@@ -58,10 +58,7 @@ export class TweetsService {
       if (departmentIds.length === 0) {
         throw new ErrorException(VAL.DEPARTMENT_IDS_REQUIRED);
       }
-      const existing = await this.departmentsDb.findExistingIdsInCompany(
-        departmentIds,
-        companyId,
-      );
+      const existing = await this.departmentsDb.findExistingIdsInCompany(departmentIds, companyId);
       if (existing.length !== new Set(departmentIds).size) {
         throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY, {
           message: `Referenced department ids include values outside this company.`,
@@ -86,11 +83,7 @@ export class TweetsService {
   async timeline(): Promise<TimelineTweet[]> {
     const userId = this.require<string>(ClsKey.USER_ID);
     const companyId = this.require<string>(ClsKey.COMPANY_ID);
-    const rows = await this.tweetsDb.findTimelineForUser(
-      userId,
-      companyId,
-      DEFAULT_TIMELINE_LIMIT,
-    );
+    const rows = await this.tweetsDb.findTimelineForUser(userId, companyId, DEFAULT_TIMELINE_LIMIT);
     return rows.map(toTimelineTweet);
   }
 }

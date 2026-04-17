@@ -25,12 +25,12 @@ PrismaService   (plain client + `tenantScoped` getter that returns a $extends-wr
 Which client a repository uses determines whether the Prisma tenant-scope
 extension participates:
 
-| Aggregate     | Client used           | Why |
-|---------------|-----------------------|-----|
-| `User`        | plain `PrismaService` | User lookup happens in `MockAuthMiddleware` BEFORE CLS is populated |
-| `Company`     | plain `PrismaService` | Company IS the tenant record — scoping it by `companyId` is circular |
-| `Department`  | `prisma.tenantScoped` | Tenant-scoped |
-| `Tweet` + pivot | `prisma.tenantScoped` | Tenant-scoped |
+| Aggregate       | Client used           | Why                                                                  |
+| --------------- | --------------------- | -------------------------------------------------------------------- |
+| `User`          | plain `PrismaService` | User lookup happens in `MockAuthMiddleware` BEFORE CLS is populated  |
+| `Company`       | plain `PrismaService` | Company IS the tenant record — scoping it by `companyId` is circular |
+| `Department`    | `prisma.tenantScoped` | Tenant-scoped                                                        |
+| `Tweet` + pivot | `prisma.tenantScoped` | Tenant-scoped                                                        |
 
 ### Adding a new aggregate
 
@@ -74,12 +74,6 @@ protected delegateFor(client: PrismaService | DbTransactionClient) {
 ```
 
 All base methods accept an optional `tx?: DbTransactionClient` parameter to participate in a transaction.
-
-## Soft Delete
-
-The current domain model does not soft-delete any aggregate. The
-`BaseRepository.softDelete` / `restore` helpers remain available — aggregates
-opt in by setting `protected supportsSoftDelete = true`.
 
 ## Tenant-Scope Extension
 

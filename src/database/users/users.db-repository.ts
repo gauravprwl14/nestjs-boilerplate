@@ -59,8 +59,9 @@ export class UsersDbRepository extends BaseRepository<
       companyId: user.companyId,
       email: user.email,
       name: user.name,
-      departmentIds: (user as unknown as { departments: Array<{ departmentId: string }> })
-        .departments.map((d) => d.departmentId),
+      departmentIds: (
+        user as unknown as { departments: Array<{ departmentId: string }> }
+      ).departments.map(d => d.departmentId),
     };
   }
 }

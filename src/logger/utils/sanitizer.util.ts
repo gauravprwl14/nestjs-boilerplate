@@ -15,11 +15,7 @@ function truncateString(value: string): string {
  * Serializes a single value into a LogAttributeValue-compatible form.
  * Uses a WeakSet to detect circular references and respects maxDepth.
  */
-function serializeValue(
-  value: unknown,
-  depth: number,
-  seen: WeakSet<object>,
-): LogAttributeValue {
+function serializeValue(value: unknown, depth: number, seen: WeakSet<object>): LogAttributeValue {
   if (value === null || value === undefined) {
     return '';
   }
@@ -62,8 +58,8 @@ function serializeValue(
 
   // Handle arrays — only primitive arrays pass through as-is
   if (Array.isArray(value)) {
-    const allStrings = value.every((item) => typeof item === 'string');
-    const allNumbers = value.every((item) => typeof item === 'number');
+    const allStrings = value.every(item => typeof item === 'string');
+    const allNumbers = value.every(item => typeof item === 'number');
 
     if (allStrings) {
       return (value as string[]).map(truncateString);
@@ -73,7 +69,7 @@ function serializeValue(
     }
 
     // Mixed/complex arrays: serialize each element to string
-    return value.map((item) => String(serializeValue(item, depth + 1, seen)));
+    return value.map(item => String(serializeValue(item, depth + 1, seen)));
   }
 
   // Plain objects: JSON serialize with fallback

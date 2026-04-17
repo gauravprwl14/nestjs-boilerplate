@@ -63,9 +63,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * extension, so `companyId` is injected/asserted automatically.
    */
   get tenantScoped() {
-    if (!this._tenantScoped) {
-      this._tenantScoped = this.buildTenantScoped();
-    }
+    this._tenantScoped ??= this.buildTenantScoped();
     return this._tenantScoped;
   }
 
@@ -85,11 +83,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     fn: (tx: Prisma.TransactionClient) => Promise<R>,
     options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<R> {
-    return (this.tenantScoped as unknown as {
-      $transaction: (
-        cb: (tx: Prisma.TransactionClient) => Promise<R>,
-        opts?: typeof options,
-      ) => Promise<R>;
-    }).$transaction(fn, options);
+    return (
+      this.tenantScoped as unknown as {
+        $transaction: (
+          cb: (tx: Prisma.TransactionClient) => Promise<R>,
+          opts?: typeof options,
+        ) => Promise<R>;
+      }
+    ).$transaction(fn, options);
   }
 }

@@ -26,7 +26,7 @@ export class TweetsDbService {
     visibility: TweetVisibility;
     departmentIds: string[];
   }): Promise<Tweet> {
-    return this.database.runInTransaction(async (tx) => {
+    return this.database.runInTransaction(async tx => {
       const tweet = await this.repo.createTweet(
         {
           companyId: input.companyId,
@@ -38,7 +38,7 @@ export class TweetsDbService {
       );
       if (input.departmentIds.length > 0) {
         await this.repo.createTargets(
-          input.departmentIds.map((departmentId) => ({
+          input.departmentIds.map(departmentId => ({
             tweetId: tweet.id,
             departmentId,
             companyId: input.companyId,

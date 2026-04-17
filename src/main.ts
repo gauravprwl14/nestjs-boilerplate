@@ -117,8 +117,14 @@ function setupSwagger(app: INestApplication, config: AppConfigService, logger: A
       .setDescription(SWAGGER_DESCRIPTION)
       .setVersion(SWAGGER_VERSION)
       .addApiKey({ type: 'apiKey', in: 'header', name: 'x-user-id' }, 'x-user-id')
-      .addTag('Departments', 'Department CRUD and hierarchy. Error codes: DAT0001, DAT0009, VAL0001, VAL0008')
-      .addTag('Tweets', 'Tweet creation + timeline. Error codes: DAT0001, VAL0001, VAL0007, VAL0008, AUZ0004')
+      .addTag(
+        'Departments',
+        'Department CRUD and hierarchy. Error codes: DAT0001, DAT0009, VAL0001, VAL0008',
+      )
+      .addTag(
+        'Tweets',
+        'Tweet creation + timeline. Error codes: DAT0001, VAL0001, VAL0007, VAL0008, AUZ0004',
+      )
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -142,7 +148,11 @@ function setupSwagger(app: INestApplication, config: AppConfigService, logger: A
   }
 }
 
-async function startServer(app: INestApplication, config: AppConfigService, logger: AppLogger): Promise<void> {
+async function startServer(
+  app: INestApplication,
+  config: AppConfigService,
+  logger: AppLogger,
+): Promise<void> {
   const { port, host, name } = config.app;
   await app.listen(port, host);
   logger.logEvent('server.started', {

@@ -221,84 +221,84 @@ describe('ACL matrix (real Postgres)', () => {
   // ── Case 1 ──
   it('case 1: no-dept user in A sees COMPANY tweet in A', async () => {
     const rows = await fetchTimeline(fx.users.a_noDept, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_COMPANY);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_COMPANY);
   });
 
   // ── Case 2 ──
   it('case 2: eng user in A sees COMPANY tweet in A', async () => {
     const rows = await fetchTimeline(fx.users.a_eng, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_COMPANY);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_COMPANY);
   });
 
   // ── Case 3 ──
   it('case 3: user in A does NOT see COMPANY tweet from B', async () => {
     const rows = await fetchTimeline(fx.users.a_eng, fx.companyA);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.B_COMPANY);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.B_COMPANY);
   });
 
   // ── Case 4 ──
   it('case 4: eng user in A sees DEPARTMENTS tweet targeted at eng', async () => {
     const rows = await fetchTimeline(fx.users.a_eng, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DEPT_eng);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DEPT_eng);
   });
 
   // ── Case 5 ──
   it('case 5: eng user does NOT see DEPARTMENTS tweet targeted at sales', async () => {
     const rows = await fetchTimeline(fx.users.a_eng, fx.companyA);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.A_DEPT_sales);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.A_DEPT_sales);
   });
 
   // ── Case 6 ──
   it('case 6: eng-backend user does NOT see DEPARTMENTS tweet (direct-only) at eng', async () => {
     const rows = await fetchTimeline(fx.users.a_engBackend, fx.companyA);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.A_DEPT_eng);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.A_DEPT_eng);
   });
 
   // ── Case 7 ──
   it('case 7: eng-backend user sees D_AND_SUB tweet at eng (via ancestor climb)', async () => {
     const rows = await fetchTimeline(fx.users.a_engBackend, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DSUB_eng);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DSUB_eng);
   });
 
   // ── Case 8 ──
   it('case 8: eng user sees D_AND_SUB tweet at eng (self-match)', async () => {
     const rows = await fetchTimeline(fx.users.a_eng, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DSUB_eng);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DSUB_eng);
   });
 
   // ── Case 9 ──
   it('case 9: sales user does NOT see D_AND_SUB tweet at eng', async () => {
     const rows = await fetchTimeline(fx.users.a_sales, fx.companyA);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.A_DSUB_eng);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.A_DSUB_eng);
   });
 
   // ── Case 10 ──
   it('case 10: user in eng+sales sees DEPARTMENTS tweet targeted at sales', async () => {
     const rows = await fetchTimeline(fx.users.a_eng_and_sales, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DEPT_sales);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DEPT_sales);
   });
 
   // ── Case 11 ──
   it('case 11: eng-backend-api user (2 levels deep) sees D_AND_SUB tweet at eng', async () => {
     const rows = await fetchTimeline(fx.users.a_engBackendApi, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DSUB_eng);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DSUB_eng);
   });
 
   // ── Case 12 ──
   it('case 12: eng user in B does NOT see D_AND_SUB tweet targeted at A.eng', async () => {
     const rows = await fetchTimeline(fx.users.b_eng, fx.companyB);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.A_DSUB_eng);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.A_DSUB_eng);
   });
 
   // ── Case 13 (ghost-tweet fix) ──
   it('case 13: executive author sees their own DEPARTMENTS tweet targeted at engineering', async () => {
     const rows = await fetchTimeline(fx.users.a_executive, fx.companyA);
-    expect(rows.map((r) => r.id)).toContain(fx.tweets.A_DEPT_eng_by_exec);
+    expect(rows.map(r => r.id)).toContain(fx.tweets.A_DEPT_eng_by_exec);
   });
 
   it('sanity: executive user does NOT see eng-only DEPARTMENTS tweet authored by SOMEONE ELSE', async () => {
     // Complement of case 13 — proves the self-view is the reason, not a blanket bug.
     const rows = await fetchTimeline(fx.users.a_executive, fx.companyA);
-    expect(rows.map((r) => r.id)).not.toContain(fx.tweets.A_DEPT_eng);
+    expect(rows.map(r => r.id)).not.toContain(fx.tweets.A_DEPT_eng);
   });
 });

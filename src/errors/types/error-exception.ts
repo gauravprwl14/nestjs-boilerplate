@@ -1,5 +1,7 @@
 import { ErrorCodeDefinition, ErrorFieldDetail } from '../interfaces/error.interfaces';
+import { DAT } from '../error-codes/database.errors';
 import { SRV } from '../error-codes/server.errors';
+import { VAL } from '../error-codes/validation.errors';
 
 /**
  * Options for constructing an ErrorException instance.
@@ -59,26 +61,30 @@ export class ErrorException extends Error {
 
   /** Resource not found. Formats message with resource name and optional identifier. */
   static notFound(resource: string, identifier?: string | number): ErrorException {
-    const { DAT } = require('../error-codes');
-    const msg = identifier != null
-      ? `${resource} with identifier '${identifier}' not found`
-      : `${resource} not found`;
+    const msg =
+      identifier != null
+        ? `${resource} with identifier '${identifier}' not found`
+        : `${resource} not found`;
     return new ErrorException(DAT.NOT_FOUND, { message: msg });
   }
 
   /** Validation error from Zod. Extracts field-level details from ZodError. */
-  static validation(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): ErrorException {
-    const { VAL } = require('../error-codes');
-    const details: ErrorFieldDetail[] = error.issues.map((issue: { path: PropertyKey[]; message: string }) => ({
-      field: issue.path.map(String).join('.') || '_root',
-      message: issue.message,
-    }));
+  static validation(error: {
+    issues: Array<{ path: PropertyKey[]; message: string }>;
+  }): ErrorException {
+    const details: ErrorFieldDetail[] = error.issues.map(
+      (issue: { path: PropertyKey[]; message: string }) => ({
+        field: issue.path.map(String).join('.') || '_root',
+        message: issue.message,
+      }),
+    );
     return new ErrorException(VAL.INVALID_INPUT, { message: 'Validation failed', details });
   }
 
   /** Validation error from class-validator. Recursively flattens nested errors. */
-  static validationFromCV(errors: Array<{ property: string; constraints?: Record<string, string>; children?: any[] }>): ErrorException {
-    const { VAL } = require('../error-codes');
+  static validationFromCV(
+    errors: Array<{ property: string; constraints?: Record<string, string>; children?: any[] }>,
+  ): ErrorException {
     const details = flattenCVErrors(errors);
     return new ErrorException(VAL.INVALID_INPUT, { message: 'Validation failed', details });
   }
@@ -157,7 +163,11 @@ export class ErrorException extends Error {
 }
 
 /** Recursively extract cause chain up to maxDepth */
-function extractCauseChain(error: Error, maxDepth: number, depth = 0): Array<{ code?: string; message: string }> {
+function extractCauseChain(
+  error: Error,
+  maxDepth: number,
+  depth = 0,
+): Array<{ code?: string; message: string }> {
   if (depth >= maxDepth) return [{ message: `[truncated at depth ${maxDepth}]` }];
 
   const entry: { code?: string; message: string } = { message: error.message };
