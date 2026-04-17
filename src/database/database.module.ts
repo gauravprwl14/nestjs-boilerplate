@@ -9,14 +9,13 @@ import { TodoListsDbRepository } from '@database/todo-lists/todo-lists.db-reposi
 import { TodoListsDbService } from '@database/todo-lists/todo-lists.db-service';
 import { TodoItemsDbRepository } from '@database/todo-items/todo-items.db-repository';
 import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
+import { TagsDbRepository } from '@database/tags/tags.db-repository';
+import { TagsDbService } from '@database/tags/tags.db-service';
 
 /**
  * Global database module. Aggregates every per-entity DbService + DbRepository
  * and exposes the transaction boundary. Feature modules inject the DbServices
  * without needing to import this module.
- *
- * Per-aggregate providers (users, auth-credentials, todo-lists, todo-items,
- * tags) are added in later tasks.
  */
 @Global()
 @Module({
@@ -31,6 +30,8 @@ import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
     TodoListsDbService,
     TodoItemsDbRepository,
     TodoItemsDbService,
+    TagsDbRepository,
+    TagsDbService,
   ],
   exports: [
     DatabaseService,
@@ -38,6 +39,7 @@ import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
     AuthCredentialsDbService,
     TodoListsDbService,
     TodoItemsDbService,
+    TagsDbService,
   ],
 })
 export class DatabaseModule {}
