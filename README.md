@@ -1,245 +1,257 @@
-# ai-native-nestjs-backend
+# Enterprise Twitter — Multi-Tenant Backend
 
-An AI-native NestJS 11 boilerplate demonstrating production-ready backend patterns, with a structured documentation system designed for AI-assisted development and autonomous doc-sync.
-
-**Domain:** Todo app (TodoLists → TodoItems → Tags)
-**Stack:** NestJS 11 · Express · Prisma 7 · PostgreSQL 16 · Redis 7 · BullMQ · JWT + API Key auth · OpenTelemetry · Grafana (Tempo, Loki, Prometheus)
-
----
-
-## Why This Repo
-
-This is not just a NestJS starter — it is a complete reference for running a fintech-grade backend with AI tooling deeply integrated:
-
-- **Structured 3-layer documentation** (Router / Room / Output) that AI agents can navigate
-- **Autonomous doc-sync** that keeps docs aligned with code changes automatically
-- **AI-aware configuration** via `CLAUDE.md` and `.claude/skills/`
-- **Production concerns baked in**: CLS, OTel, Pino, rate limiting, request IDs, graceful shutdown
-- **Domain-prefixed error system** (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`) with full error taxonomy
+A NestJS 11 + Prisma 7 + PostgreSQL implementation of the take-home assignment
+in `QUESTION.md`: a single backend serving many companies, with per-department
+visibility and three-level visibility rules.
 
 ---
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js 20+
-- Docker + Docker Compose
-- npm 10+
-
-### Run locally
+## Quickstart
 
 ```bash
-# 1. Install dependencies
+# 1. Dependencies
 npm install
 
-# 2. Copy environment file and adjust if needed
-cp .env.example .env
+# 2. Environment — dev DB defaults to local Postgres on 5432
+cp .env.example .env.development
+# (edit DATABASE_URL if your Postgres differs)
 
-# 3. Start backing services (Postgres, Redis, Grafana stack)
-docker-compose up -d
+# 3. Schema
+npm run prisma:migrate:dev          # applies `database migration for the product`
 
-# 4. Generate Prisma client and run migrations
-npm run prisma:generate
-npm run prisma:migrate:dev
+# 4. Seed — creates 2 companies, department trees, 7 users; prints user ids
+npx prisma db seed
 
-# 5. Start the dev server
-npm run start:dev
+# 5. Run
+npm run start:dev                   # http://localhost:3000
+
+Swagger:   http://localhost:3000/docs
 ```
 
-API available at `http://localhost:3000/api/v1/*`
-Swagger UI at `http://localhost:3000/api/docs`
-Grafana at `http://localhost:3001`
+Authenticate any request by setting the `x-user-id` header to a seeded user id:
 
-### Useful scripts
-
-| Command                 | Purpose                                 |
-| ----------------------- | --------------------------------------- |
-| `npm run start:dev`     | Dev server with watch mode              |
-| `npm run build`         | Production build                        |
-| `npm test`              | Unit tests                              |
-| `npm run test:cov`      | Unit tests with coverage (target ≥ 80%) |
-| `npm run test:e2e`      | End-to-end tests                        |
-| `npm run lint`          | ESLint with auto-fix                    |
-| `npm run type:check`    | TypeScript type check without emit      |
-| `npm run prisma:studio` | Open Prisma Studio                      |
+```bash
+# Replace <ALICE> with the UUID printed by the seed command.
+curl -H "x-user-id: <ALICE>" http://localhost:3000/api/v1/timeline
+curl -H "x-user-id: <ALICE>" -H "Content-Type: application/json" \
+     -X POST http://localhost:3000/api/v1/tweets \
+     -d '{"content":"hello","visibility":"COMPANY"}'
+```
 
 ---
 
-## Project Structure
+## API
+
+| Method | Path                       | Purpose                                                                                                                                                |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST   | `/api/v1/tweets`           | Create a tweet (content ≤ 280 chars; visibility ∈ {COMPANY, DEPARTMENTS, DEPARTMENTS_AND_SUBDEPARTMENTS}; `departmentIds` required for the latter two) |
+| GET    | `/api/v1/timeline`         | Return tweets visible to the caller, newest first, up to 100 rows                                                                                      |
+| POST   | `/api/v1/departments`      | Create a department (optional `parentId`, must be same-company)                                                                                        |
+| GET    | `/api/v1/departments`      | Flat list of departments in the caller's company                                                                                                       |
+| GET    | `/api/v1/departments/tree` | Same, nested by `parentId`                                                                                                                             |
+
+All API endpoints require the `x-user-id` header. Missing or unknown ids yield
+`401 AUT0001`.
+
+---
+
+## 1 · Multi-Tenant Approach
+
+**Single shared database, `companyId` on every tenant-scoped table** — the
+pragmatic shape for ~2 h of work and still production-defensible at small scale.
+Isolation is enforced at five independent layers, so a bug in any one of them
+still doesn't leak data:
+
+1. **HTTP gate — `MockAuthMiddleware`** (`src/common/middleware/mock-auth.middleware.ts`).
+   Reads `x-user-id`, loads the user + their company + their direct department
+   memberships, and publishes them into CLS. Missing/unknown header → `401`.
+2. **Global fail-fast guard — `AuthContextGuard`** (`src/common/guards/auth-context.guard.ts`).
+   Registered as `APP_GUARD`. If `companyId` isn't in CLS (misconfigured route
+   that skipped the middleware), the guard blocks the request before any query
+   fires. `@Public()` routes (e.g. Swagger) bypass it.
+3. **ORM guard — Prisma `$extends` tenant-scope extension** (`src/database/extensions/tenant-scope.extension.ts`).
+   Applied to every delegate operation on `Department`, `UserDepartment`,
+   `Tweet`, `TweetDepartment`. Reads auto-inject `where: { companyId }`; writes
+   are rejected when `data.companyId` disagrees with the CLS value, or the
+   caller omits it.
+4. **Service-level pre-validation** — services resolve referenced ids within
+   the caller's tenant before any write, so a cross-tenant `departmentId`
+   surfaces a clean `VAL0008 DEPARTMENT_NOT_IN_COMPANY` instead of hitting FK
+   constraints later.
+5. **Schema-level composite FKs** — `(parentId, companyId) → departments(id, companyId)`
+   and `(tweetId, companyId) / (departmentId, companyId) → tweets/departments(id, companyId)`
+   on `TweetDepartment`. The database flat-out refuses a cross-tenant
+   reference even if every layer above somehow failed.
+
+### Known ORM blindspots we compensate for
+
+Prisma extensions do **NOT** cover two paths:
+
+- **Raw SQL (`$queryRaw`, `$executeRaw`)** bypasses `$extends`. The only raw
+  query in the app is `findTimelineForUser`. It hard-codes `company_id =
+${companyId}` as the first WHERE predicate and threads `companyId` into every
+  sub-CTE. See `src/database/tweets/tweets.db-repository.ts`.
+- **Nested writes via `connect`** are not validated by the extension's
+  `args.data.companyId` check. Services never do nested-connect into
+  tenant-scoped relations. `TweetsService.create` (`src/modules/tweets/tweets.service.ts`)
+  instead fetches existing ids via `findExistingIdsInCompany` (extension-scoped
+  → cross-tenant rows silently drop) and rejects any length mismatch with
+  `VAL0008`. Then writes go via flat `createMany` with explicit `companyId` on
+  every row.
+
+---
+
+## 2 · ACL Logic
+
+Every tweet row carries:
+
+| column                          | meaning                                                         |
+| ------------------------------- | --------------------------------------------------------------- |
+| `authorId`                      | the user who wrote it                                           |
+| `companyId`                     | the tenant — visibility starts here                             |
+| `visibility`                    | `COMPANY` \| `DEPARTMENTS` \| `DEPARTMENTS_AND_SUBDEPARTMENTS`  |
+| targets (via `TweetDepartment`) | zero rows for COMPANY; one or more for the two department modes |
+
+A user sees a tweet **iff**:
+
+- Same `companyId` as the tweet, **and**
+- Any one of these is true:
+  - The tweet is authored by the caller (**author self-visibility** — authors
+    always see their own posts, regardless of targets. Without this, a CEO in
+    `Executive` posting a tweet to `Engineering` wouldn't see it in their own
+    timeline — a confusing UX bug).
+  - `visibility = COMPANY`.
+  - `visibility = DEPARTMENTS` and at least one target dept is in the user's
+    **direct** memberships.
+  - `visibility = DEPARTMENTS_AND_SUBDEPARTMENTS` and at least one target
+    dept is an **ancestor** (or equal) of one of the user's departments.
+
+All four branches are evaluated in a **single recursive-CTE SQL query** — no
+N+1, no in-app tree walking. See `src/database/tweets/tweets.db-repository.ts`
+(`findTimelineForUser`). The access-control matrix has 13 cases (covering
+every cross-product of company × visibility × membership × hierarchy depth)
+and is exercised against a real Postgres instance in
+`test/integration/acl-matrix.spec.ts`.
+
+---
+
+## 3 · Department Hierarchy
+
+Departments are modelled as an **adjacency list** — each row has an optional
+`parentId` self-reference. That's the simplest shape that still supports
+unbounded tree depth.
+
+The tricky part is reading the tree efficiently. Instead of looping in app code
+(N queries per user), the timeline query uses a **Postgres `WITH RECURSIVE`
+CTE** to climb from each of the user's direct departments up through parents
+in one pass:
+
+```sql
+WITH RECURSIVE
+  user_direct_depts AS (
+    SELECT department_id AS id
+    FROM user_departments WHERE user_id = $user AND company_id = $company
+  ),
+  user_dept_ancestors(id, parent_id) AS (
+    SELECT d.id, d.parent_id FROM departments d
+    WHERE d.id IN (SELECT id FROM user_direct_depts) AND d.company_id = $company
+    UNION                                                                      -- <—
+    SELECT p.id, p.parent_id FROM departments p
+    INNER JOIN user_dept_ancestors uda ON p.id = uda.parent_id
+    WHERE p.company_id = $company
+  )
+SELECT … FROM tweets WHERE …  (visibility branch uses both CTEs)
+```
+
+**`UNION` vs `UNION ALL`** — UNION is deliberate. When a user belongs to
+multiple departments that share ancestors, per-iteration dedup keeps recursion
+bounded by the subtree size instead of exploding. `UNION ALL` would revisit
+the same ancestor from two paths.
+
+**Cross-tenant safety** — every CTE and the outer select all filter on
+`company_id = $company`. Combined with the composite FK on `departments`
+(`parentId, companyId → id, companyId`), a tree can never cross tenants, even
+if a bug in the department create path tried.
+
+---
+
+## Tests
+
+```bash
+npm test                                    # unit + ACL-matrix integration (117 + 2)
+npm run test:e2e                            # tweets happy-path + 401 on missing header
+npm run test:cov                            # with coverage (≥ 70% global, ≥ 80% services)
+```
+
+Key suites:
+
+- `test/integration/acl-matrix.spec.ts` — 13-case visibility matrix against
+  real Postgres, including the ghost-tweet (author self-view) case and the
+  cross-tenant check.
+- `test/unit/modules/tweets/tweets.service.spec.ts` — business-logic spec for
+  the DTO-validation + flat-write + pre-check pathway.
+- `test/unit/modules/departments/departments.service.spec.ts` — parent
+  same-tenant enforcement + tree-builder correctness.
+- `test/unit/common/middleware/mock-auth.middleware.spec.ts` — middleware CLS
+  population and 401 paths.
+- `test/e2e/tweets.e2e-spec.ts` — end-to-end POST → GET round-trip.
+
+---
+
+## What's Out of Scope (vs. a Full Product)
+
+- **Pagination** on the timeline. Default limit 100; cursor pagination is a
+  straightforward extension (add `before`/`limit` query params, carry
+  `createdAt,id` as cursor).
+- **Tweet update/delete, replies, likes, search** — not requested by the spec.
+- **Registration/login/JWT/API keys.** The boilerplate shipped with those; we
+  intentionally stripped them because the assignment explicitly allows mock
+  auth. Production rollout would swap `MockAuthMiddleware` for a real JWT
+  guard that still pushes `{userId, companyId, userDepartmentIds}` into CLS —
+  everything downstream is unchanged.
+- **Department update/delete** — only create + list exposed; we wanted to
+  keep the surface tight.
+- **Observability** — OpenTelemetry scaffolding is present under
+  `src/telemetry/` but disabled by `OTEL_ENABLED=false`. Enable in infra envs.
+
+---
+
+## Tech Stack
+
+NestJS 11 · Prisma 7 (driver adapter mode) · PostgreSQL · Zod for request
+validation · Pino for structured logs · Jest + supertest for testing ·
+nestjs-cls for AsyncLocalStorage-backed request context.
+
+---
+
+## Project Layout (relevant bits)
 
 ```
 src/
-├── app.module.ts          # Root module; wires all feature modules
-├── main.ts                # Entry; bootstrap + OTel SDK init
-├── bootstrap/             # Graceful shutdown, signal handlers
-├── config/                # Zod-validated env config; AppConfigService
-├── common/                # Filters, middleware, interceptors, decorators, pipes
-├── database/              # PrismaService, PrismaModule, BaseRepository
-├── errors/                # ErrorException + domain error-code constants
-├── logger/                # AppLogger (Pino), sanitizer, trace-context util
-├── telemetry/             # OTel SDK, TelemetryService, @Trace decorator
-├── queue/                 # BullMQ QueueModule (Redis-backed)
-└── modules/
-    ├── auth/              # JWT + API Key auth
-    ├── users/             # User profile
-    ├── health/            # /health endpoint
-    ├── todo-lists/        # TodoList CRUD
-    ├── todo-items/        # TodoItem CRUD + status transitions + BullMQ
-    └── tags/              # Tag CRUD + assign/remove
+├── app.module.ts                              # module wiring + global middleware/guard
+├── main.ts                                    # bootstrap, Swagger, pipes, filters
+├── common/
+│   ├── middleware/mock-auth.middleware.ts     # ① HTTP gate: x-user-id → CLS
+│   └── guards/auth-context.guard.ts           # ② Fail-fast: CLS companyId must be set
+├── database/
+│   ├── prisma.service.ts                      # Prisma client + tenant-scoped extension wiring
+│   ├── extensions/tenant-scope.extension.ts   # ③ ORM guard: inject/assert companyId
+│   ├── prisma/schema.prisma                   # models + composite FKs
+│   ├── companies/
+│   ├── departments/
+│   ├── tweets/                                # incl. raw-SQL timeline query
+│   └── users/                                 # minimal: only findAuthContext for mock auth
+├── modules/
+│   ├── departments/                           # POST /departments, GET /departments, /tree
+│   └── tweets/                                # POST /tweets, GET /timeline
+├── errors/error-codes/                        # adds AUZ.CROSS_TENANT_ACCESS,
+│                                              # DAT.DEPARTMENT_NOT_FOUND / COMPANY_NOT_FOUND,
+│                                              # VAL.DEPARTMENT_IDS_REQUIRED / DEPARTMENT_NOT_IN_COMPANY
+└── …
+
+prisma/seed.ts                                 # 2 companies, 3-level tree, 7 users + sample tweets
+test/
+├── unit/…                                     # co-located unit specs
+├── integration/acl-matrix.spec.ts             # ★ the 13-case access-control proof
+└── e2e/tweets.e2e-spec.ts                     # HTTP happy-path
 ```
-
----
-
-## Documentation System
-
-Documentation is organized in a **3-layer architecture** so AI agents load exactly what's relevant to the task at hand, nothing more:
-
-| Layer         | Role                              | Files                                                                                                                  |
-| ------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **1. Router** | Loaded first in every session     | `CLAUDE.md` (root)                                                                                                     |
-| **2. Room**   | Standing instructions per domain  | `docs/CONTEXT.md` + sub-folder `CONTEXT.md` files                                                                      |
-| **3. Output** | Reference docs and specifications | `docs/architecture/`, `docs/coding-guidelines/`, `docs/guides/`, `docs/diagrams/`, `docs/prd/`, `docs/infrastructure/` |
-
-Start at `CLAUDE.md` for the routing table that maps tasks (e.g., "add a feature module", "fix error handling", "work on observability") to the specific docs needed for that task.
-
-### Documentation Index
-
-- [`CLAUDE.md`](./CLAUDE.md) — AI router with folder map, routing table, conventions, error system, logger contract
-- [`docs/architecture/`](./docs/architecture/) — High-level, service, database design, auth flow
-- [`docs/coding-guidelines/`](./docs/coding-guidelines/) — 11 files covering project structure, modules, naming, DI, patterns, errors, logging, testing
-- [`docs/guides/`](./docs/guides/) — Feature deep-dives (`FOR-Authentication.md`, `FOR-Error-Handling.md`, `FOR-Observability.md`, `FOR-Todo-Module.md`)
-- [`docs/diagrams/`](./docs/diagrams/) — Mermaid sequence diagrams (auth, error handling, observability, todo CRUD)
-- [`docs/prd/`](./docs/prd/) — Product requirements for the Todo app
-- [`docs/infrastructure/`](./docs/infrastructure/) — Docker setup, env config, deployment checklist, Grafana stack
-- [`docs/task-tracker/`](./docs/task-tracker/) — Project status tracking
-
----
-
-## Autonomous Doc-Sync
-
-This project has a **4-component doc-sync system** that keeps documentation aligned with code automatically:
-
-### 1. `/sync-docs` skill
-
-A Claude Code skill that reads the current git diff, scans **all** documentation across every layer (PRD, architecture, guides, diagrams, `CLAUDE.md`, `CONTEXT.md` files), and updates anything affected by the code changes. It:
-
-- Never auto-commits — changes are left unstaged for your review
-- Creates new docs for new modules (e.g., new module → new `docs/guides/FOR-<Name>.md`)
-- Archives obsolete docs to `docs/archival/` (never deletes) — you confirm deletion after review
-- Flags Mermaid and sequence diagrams for manual visual verification
-
-**Usage:**
-
-```bash
-/sync-docs                    # Sync against current HEAD (staged + unstaged)
-/sync-docs --branch main      # Sync against a specific branch baseline
-```
-
-Definition: [`.claude/skills/sync-docs/SKILL.md`](./.claude/skills/sync-docs/SKILL.md)
-
-### 2. `Stop` + `SubagentStop` hooks
-
-Prompt-based hooks in [`.claude/settings.json`](./.claude/settings.json) that fire after every Claude Code response (main session or subagent/worktree). They detect code changes without doc changes and gently remind you:
-
-> _"Code changes detected in src/ but no documentation changes. Documentation may be stale. Run /sync-docs to update affected docs before committing, or proceed if intentional."_
-
-Mode-agnostic — works in main sessions, subagents, and git worktrees.
-
-### 3. Husky pre-commit check
-
-[`.husky/check-docs-sync.sh`](./.husky/check-docs-sync.sh) runs during `git commit`. If you stage code files under `src/`, `test/`, `prisma/schema.prisma`, or root config files (`package.json`, `tsconfig.json`, `nest-cli.json`, `docker-compose.yml`) **without** staging any doc files, it prints a warning and blocks the commit.
-
-Three bypass options (when you know docs don't need updating):
-
-```bash
-# 1. Env var
-SKIP_DOC_CHECK=1 git commit -m "..."
-
-# 2. Commit message flag
-git commit -m "fix: trivial typo [skip-doc-check]"
-
-# 3. Skip all hooks (nuclear option)
-git commit --no-verify -m "..."
-```
-
-### 4. Archival pattern
-
-Obsolete docs move to [`docs/archival/`](./docs/archival/) with a date prefix (e.g., `2026-04-16_FOR-OldModule.md`) so nothing is ever lost. You review and permanently delete only when confident.
-
-### Full design
-
-- Spec: [`docs/superpowers/specs/2026-04-16-doc-auto-sync-design.md`](./docs/superpowers/specs/2026-04-16-doc-auto-sync-design.md)
-- Implementation plan: [`docs/superpowers/plans/2026-04-16-doc-auto-sync.md`](./docs/superpowers/plans/2026-04-16-doc-auto-sync.md)
-
----
-
-## Error System
-
-Errors are `ErrorException` instances (extends native `Error`, not `HttpException`). Domain error-code constants (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`) are the API — no string keys, no factory class.
-
-```typescript
-import { AUT, DAT, VAL } from '@errors/error-codes';
-import { ErrorException } from '@errors/types/error-exception';
-
-throw new ErrorException(AUT.UNAUTHENTICATED);
-throw new ErrorException(DAT.NOT_FOUND, { message: `User ${id} not found` });
-throw ErrorException.notFound('User', id);
-throw ErrorException.validation(zodError);
-```
-
-Error-code format: `PREFIX` (3 uppercase letters) + 4-digit zero-padded number (e.g., `DAT0001`, `AUT0006`).
-
-Deep dive: [`docs/guides/FOR-Error-Handling.md`](./docs/guides/FOR-Error-Handling.md) and [`docs/coding-guidelines/07-error-handling.md`](./docs/coding-guidelines/07-error-handling.md)
-
----
-
-## Observability
-
-- **Tracing:** OpenTelemetry SDK auto-instruments HTTP, Prisma, BullMQ. Traces exported to Tempo via OTel Collector.
-- **Logs:** Pino-backed `AppLogger` emits structured JSON with `traceId`, `requestId`, `userId` propagated via `ClsService`. Loki scrapes.
-- **Metrics:** Prometheus scrapes `/metrics`. Dashboards provisioned in Grafana.
-
-Logger contract has three methods with fixed semantics:
-
-```typescript
-logger.logEvent('user.created', { attributes: { userId } }); // Always INFO
-logger.logError('db.query.failed', error, { attributes }); // Always ERROR
-logger.log('process exiting', { level: LogLevel.FATAL }); // Configurable
-```
-
-Deep dive: [`docs/guides/FOR-Observability.md`](./docs/guides/FOR-Observability.md)
-
----
-
-## API Versioning
-
-Routes use NestJS URI versioning: `/api/v{version}/path`. All current controllers are v1. New versions live in sibling controllers with `@Controller({ path: '...', version: '2' })` — v1 keeps working.
-
----
-
-## Testing
-
-- **Pattern:** AAA (Arrange / Act / Assert)
-- **Unit tests:** Co-located `*.spec.ts` next to source
-- **E2E tests:** `test/` directory, `*.e2e-spec.ts` suffix
-- **Mock factories:** `test/helpers/`
-- **Never** call real databases in unit tests — mock `PrismaService` via `test/helpers/prisma.mock.ts`
-- **Coverage target:** ≥ 80% lines on services and repositories
-
----
-
-## Contributing Workflow
-
-1. Branch from `main`
-2. Make code changes
-3. When Claude Code reminds you (via `Stop` hook) or before committing: run `/sync-docs`
-4. Review the sync output — unstaged doc changes and any flagged diagrams
-5. `git commit` — pre-commit hook validates code + docs are staged together (or you use a bypass)
-6. Open a PR
-
----
-
-## License
-
-Private — internal boilerplate.
