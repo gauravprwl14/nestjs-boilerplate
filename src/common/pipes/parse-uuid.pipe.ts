@@ -3,8 +3,7 @@ import { ErrorException } from '@errors/types/error-exception';
 import { VAL } from '@errors/error-codes';
 
 /** UUID v4 regex pattern */
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Pipe that validates a string parameter is a valid UUID v4.
