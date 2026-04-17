@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { User } from '@prisma/client';
-import { UsersRepository } from './users.repository';
+import { UsersDbService } from '@database/users/users.db-service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ErrorException } from '@errors/types/error-exception';
 
@@ -12,20 +12,19 @@ export type SafeUser = Omit<User, 'passwordHash'>;
  */
 @Injectable()
 export class UsersService {
-  constructor(private readonly usersRepository: UsersRepository) {}
+  constructor(private readonly usersDb: UsersDbService) {}
 
   /**
    * Returns the profile of a user by ID, excluding the password hash.
    * @param userId - The user's UUID
    * @returns The user profile without passwordHash
+   * @throws {ErrorException} when the user is not found
    */
   async getProfile(userId: string): Promise<SafeUser> {
-    const user = await this.usersRepository.findUnique({ id: userId });
-
+    const user = await this.usersDb.findById(userId);
     if (!user || user.deletedAt) {
       throw ErrorException.notFound('User', userId);
     }
-
     const { passwordHash: _, ...safeUser } = user;
     return safeUser;
   }
@@ -35,19 +34,17 @@ export class UsersService {
    * @param userId - The user's UUID
    * @param dto - Fields to update
    * @returns The updated user profile without passwordHash
+   * @throws {ErrorException} when the user is not found
    */
   async updateProfile(userId: string, dto: UpdateUserDto): Promise<SafeUser> {
-    const user = await this.usersRepository.findUnique({ id: userId });
-
+    const user = await this.usersDb.findById(userId);
     if (!user || user.deletedAt) {
       throw ErrorException.notFound('User', userId);
     }
-
-    const updated = await this.usersRepository.update({ id: userId }, {
+    const updated = await this.usersDb.updateProfile(userId, {
       firstName: dto.firstName,
       lastName: dto.lastName,
     });
-
     const { passwordHash: _, ...safeUser } = updated;
     return safeUser;
   }

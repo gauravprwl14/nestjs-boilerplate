@@ -53,23 +53,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   /**
    * Execute operations within a database transaction.
-   * Prefer using BaseRepository.withTransaction() in the service layer.
-   * Use this method for cross-repository transactions where multiple
-   * repositories need to participate in the same atomic operation.
+   *
+   * Feature services should prefer `DatabaseService.runInTransaction()`,
+   * which exposes the transaction client as `DbTransactionClient` and keeps
+   * `Prisma.*` types confined to `src/database/`. This method exists so
+   * `DatabaseService` (and other db-layer helpers) have a thin wrapper over
+   * Prisma's `$transaction` with the same options surface.
    *
    * @param fn - Callback receiving the transaction client
    * @param options - Transaction options
    * @param options.timeout - Transaction timeout in milliseconds
    * @param options.isolationLevel - Database isolation level
    * @returns Result of the callback
-   *
-   * @example
-   * ```typescript
-   * await this.prismaService.transaction(async (tx) => {
-   *   await userRepo.createWithTx(tx, userData);
-   *   await profileRepo.createWithTx(tx, profileData);
-   * });
-   * ```
    */
   async transaction<R>(
     fn: (tx: Prisma.TransactionClient) => Promise<R>,

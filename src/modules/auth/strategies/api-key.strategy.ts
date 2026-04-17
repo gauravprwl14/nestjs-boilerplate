@@ -4,7 +4,7 @@ import { Strategy } from 'passport-custom';
 import { Request } from 'express';
 import * as crypto from 'crypto';
 import { User, ApiKeyStatus } from '@prisma/client';
-import { PrismaService } from '@database/prisma.service';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { API_KEY_HEADER } from '@common/constants';
 import { ErrorException } from '@errors/types/error-exception';
 import { AUT } from '@errors/error-codes';
@@ -18,7 +18,7 @@ import { AUT } from '@errors/error-codes';
  */
 @Injectable()
 export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
-  constructor(private readonly prisma: PrismaService) {
+  constructor(private readonly authCredentialsDb: AuthCredentialsDbService) {
     super();
   }
 
@@ -37,10 +37,7 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
 
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
-    const apiKey = await this.prisma.apiKey.findUnique({
-      where: { keyHash },
-      include: { user: true },
-    });
+    const apiKey = await this.authCredentialsDb.findApiKeyByHashWithUser(keyHash);
 
     if (!apiKey) {
       throw new ErrorException(AUT.UNAUTHENTICATED, { message: 'Invalid API key' });
@@ -55,12 +52,10 @@ export class ApiKeyStrategy extends PassportStrategy(Strategy, 'api-key') {
     }
 
     // Update lastUsedAt asynchronously — do not await to avoid blocking
-    this.prisma.apiKey
-      .update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } })
-      .catch(() => {
-        // Ignore update errors — non-critical
-      });
+    this.authCredentialsDb.touchApiKeyLastUsed(apiKey.id).catch(() => {
+      // Ignore update errors — non-critical
+    });
 
-    return (apiKey as typeof apiKey & { user: User }).user;
+    return apiKey.user;
   }
 }

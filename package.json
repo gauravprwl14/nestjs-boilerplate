@@ -29,6 +29,9 @@
     "db:push": "prisma db push",
     "prepare": "husky"
   },
+  "prisma": {
+    "schema": "src/database/prisma/schema.prisma"
+  },
   "lint-staged": {
     "*.ts": [
       "eslint --fix",

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TagsRepository } from './tags.repository';
 import { TagsService } from './tags.service';
 import { TagsController } from './tags.controller';
 import { TodoItemsModule } from '@modules/todo-items/todo-items.module';
@@ -10,7 +9,7 @@ import { TodoItemsModule } from '@modules/todo-items/todo-items.module';
 @Module({
   imports: [TodoItemsModule],
   controllers: [TagsController],
-  providers: [TagsRepository, TagsService],
-  exports: [TagsService, TagsRepository],
+  providers: [TagsService],
+  exports: [TagsService],
 })
 export class TagsModule {}

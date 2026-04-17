@@ -14,7 +14,8 @@ Every feature module follows this exact structure:
   controllers: [ExampleController],
   providers: [
     ExampleService,
-    ExampleRepository, // if you have a dedicated repository class
+    // Note: *DbRepository and *DbService live in src/database/ and are provided
+    // by the global DatabaseModule — do NOT redeclare them here.
   ],
   exports: [
     ExampleService, // only export if another module needs this service
@@ -25,21 +26,23 @@ export class ExampleModule {}
 
 ## DI Import Rules
 
-| Scenario | What to do |
-|----------|-----------|
-| Need `PrismaService` | Inject directly — `PrismaModule` is `@Global()` |
-| Need `AppLogger` | Inject directly — `AppLoggerModule` is `@Global()` |
-| Need `TelemetryService` | Inject directly — `TelemetryModule` is `@Global()` |
-| Need `AppConfigService` | Inject directly — `AppConfigModule` is `@Global()` |
+| Scenario                                   | What to do                                                           |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| Need `PrismaService` (infrastructure only) | Inject directly — `PrismaModule` is `@Global()`                      |
+| Need data access for an aggregate          | Inject the `*DbService` directly — `DatabaseModule` is `@Global()`   |
+| Need cross-aggregate transactions          | Inject `DatabaseService` directly — `DatabaseModule` is `@Global()`  |
+| Need `AppLogger`                           | Inject directly — `AppLoggerModule` is `@Global()`                   |
+| Need `TelemetryService`                    | Inject directly — `TelemetryModule` is `@Global()`                   |
+| Need `AppConfigService`                    | Inject directly — `AppConfigModule` is `@Global()`                   |
 | Need a service from another feature module | Add that module to `imports: []` and ensure it `exports` the service |
-| Two modules depend on each other | This is a circular dependency — refactor shared logic to `common/` |
+| Two modules depend on each other           | This is a circular dependency — refactor shared logic to `common/`   |
 
 ## Provider Registration Patterns
 
 ### Standard service
 
 ```typescript
-providers: [ExampleService]
+providers: [ExampleService];
 ```
 
 ### With factory (conditional config)
@@ -51,16 +54,13 @@ providers: [
     useFactory: (config: AppConfigService) => new ExampleService(config.someValue),
     inject: [AppConfigService],
   },
-]
+];
 ```
 
 ### Alias token for an existing class
 
 ```typescript
-providers: [
-  ExampleService,
-  { provide: EXAMPLE_SERVICE_TOKEN, useExisting: ExampleService },
-]
+providers: [ExampleService, { provide: EXAMPLE_SERVICE_TOKEN, useExisting: ExampleService }];
 ```
 
 ## Global Guard Registration
@@ -68,9 +68,7 @@ providers: [
 The `JwtAuthGuard` is registered as a global guard in `AuthModule`:
 
 ```typescript
-providers: [
-  { provide: APP_GUARD, useClass: JwtAuthGuard },
-]
+providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }];
 ```
 
 Do **not** register additional `APP_GUARD` providers unless intentional — each one runs on every request.
@@ -98,8 +96,8 @@ Exporting everything pollutes the module API and makes refactoring harder.
 
 ```typescript
 // Bad — exposes internals unnecessarily
-exports: [ExampleService, ExampleRepository, ExampleHelper]
+exports: [ExampleService, ExampleRepository, ExampleHelper];
 
 // Good — only expose what other modules legitimately need
-exports: [ExampleService]
+exports: [ExampleService];
 ```

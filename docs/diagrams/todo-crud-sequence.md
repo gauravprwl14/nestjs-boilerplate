@@ -1,5 +1,7 @@
 # Todo CRUD Sequence Diagrams
 
+<!-- DOC-SYNC: Diagram updated on 2026-04-17. Database calls now route through TodoListsDbService (and others) instead of direct Prisma. Participants labelled "PG" are still correct at sequence level; the internal path is Service → *DbService → *DbRepository → PG. Please verify visual accuracy before committing. -->
+
 > See `docs/guides/FOR-Todo-Module.md` for the full feature guide.
 
 ## Create Todo List

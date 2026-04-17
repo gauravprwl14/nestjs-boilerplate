@@ -17,7 +17,7 @@ src/
 ├── bootstrap/             # Graceful shutdown and process-level signal handlers
 ├── config/                # Zod-validated env config; AppConfigService
 ├── common/                # Cross-cutting: filters, middleware, interceptors, decorators, pipes, constants
-├── database/              # PrismaService, PrismaModule, BaseRepository
+├── database/              # PrismaService, PrismaModule, BaseRepository, DatabaseService, DatabaseModule, per-aggregate DbRepository + DbService
 ├── errors/                # ErrorException, domain error-code constants (GEN/VAL/AUT/AUZ/DAT/SRV), Prisma error handler
 ├── logger/                # AppLogger (Pino-backed), logger interfaces, sanitizer, trace-context util
 ├── telemetry/             # OTel SDK init, TelemetryService, @Trace/@InstrumentClass decorators
@@ -35,18 +35,19 @@ src/
 
 ## Routing Table
 
-| Task | Load these docs |
-|------|----------------|
-| Add a new feature module | `docs/coding-guidelines/02-module-organization.md`, `docs/coding-guidelines/04-architecture-patterns.md`, `.claude/skills/add-module.md` |
-| Modify auth or add a guard | `docs/guides/FOR-Authentication.md`, `docs/architecture/auth-flow.md` |
-| Add or change API endpoints | `docs/prd/todo-app-prd.md`, `docs/coding-guidelines/04-architecture-patterns.md`, `docs/guides/FOR-Todo-Module.md` |
-| Change database schema | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md` |
-| Add or fix error handling | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md` |
-| Work on logging or tracing | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md` |
-| Write or fix tests | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md` |
-| Set up infrastructure or deploy | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md` |
-| Understand system architecture | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md` |
-| Plan a new feature | `docs/plans/template.md`, `PLOT.md` |
+| Task                                                | Load these docs                                                                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a new feature module                            | `docs/coding-guidelines/02-module-organization.md`, `docs/coding-guidelines/04-architecture-patterns.md`, `.claude/skills/add-module.md` |
+| Modify auth or add a guard                          | `docs/guides/FOR-Authentication.md`, `docs/architecture/auth-flow.md`                                                                    |
+| Add or change API endpoints                         | `docs/prd/todo-app-prd.md`, `docs/coding-guidelines/04-architecture-patterns.md`, `docs/guides/FOR-Todo-Module.md`                       |
+| Change database schema                              | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md`                                                 |
+| Work on the database layer (DbService/DbRepository) | `docs/guides/FOR-Database-Layer.md`, `docs/coding-guidelines/06-database-patterns.md`, `docs/architecture/service-architecture.md`       |
+| Add or fix error handling                           | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md`                                                       |
+| Work on logging or tracing                          | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md`                                                   |
+| Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                                |
+| Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                               |
+| Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                              |
+| Plan a new feature                                  | `docs/plans/template.md`, `PLOT.md`                                                                                                      |
 
 ---
 
@@ -54,7 +55,7 @@ src/
 
 - **Same module:** Place providers directly in `providers: []`.
 - **Different module:** Export from the providing module and `imports: []` in the consuming module.
-- **Globals (`@Global()`):** `AppConfigModule`, `AppLoggerModule`, `PrismaModule`, `TelemetryModule` — available everywhere without re-importing.
+- **Globals (`@Global()`):** `AppConfigModule`, `AppLoggerModule`, `PrismaModule`, `DatabaseModule`, `TelemetryModule` — available everywhere without re-importing.
 - **Never use `forwardRef`** — restructure dependencies instead (circular deps indicate a design flaw).
 - **Guards, interceptors, filters** registered at the module level apply to all routes in that module.
 
@@ -81,6 +82,7 @@ Errors are represented as `ErrorException` instances (extends `Error`, NOT `Http
 Domain error constants (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`) are the API — no string keys or factory class.
 
 **Creating errors:**
+
 ```typescript
 import { AUT, DAT, VAL, GEN } from '@errors/error-codes';
 import { ErrorException } from '@errors/types/error-exception';
@@ -88,16 +90,19 @@ import { ErrorException } from '@errors/types/error-exception';
 // Direct usage — most cases
 throw new ErrorException(AUT.UNAUTHENTICATED);
 throw new ErrorException(DAT.NOT_FOUND, { message: `User ${id} not found` });
-throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, { message: `Cannot go from ${from} to ${to}` });
+throw new ErrorException(VAL.INVALID_STATUS_TRANSITION, {
+  message: `Cannot go from ${from} to ${to}`,
+});
 
 // Static helpers for common parameterized patterns
 throw ErrorException.notFound('User', id);
-throw ErrorException.validation(zodError);       // converts Zod issues
-throw ErrorException.validationFromCV(cvErrors);  // converts class-validator
+throw ErrorException.validation(zodError); // converts Zod issues
+throw ErrorException.validationFromCV(cvErrors); // converts class-validator
 throw ErrorException.internal(cause);
 ```
 
 **Catching errors:**
+
 ```typescript
 if (ErrorException.isErrorException(err)) {
   return err.toResponse(); // Safe, masks non-userFacing messages
@@ -129,15 +134,16 @@ Routes use **NestJS URI versioning**: `/api/v{version}/path`.
 
 Use composite decorators to reduce boilerplate:
 
-| Decorator | File | Purpose |
-|-----------|------|---------|
-| `@ApiAuth()` | `src/common/decorators/api-auth.decorator.ts` | Bearer auth + 401 response doc |
-| `@ApiEndpoint(opts)` | `src/common/decorators/api-endpoint.decorator.ts` | `@ApiOperation` + `@ApiResponse` + `@HttpCode` combined |
-| `@Public()` | `src/common/decorators/public.decorator.ts` | Skip JWT guard on a route |
-| `@CurrentUser(field?)` | `src/common/decorators/current-user.decorator.ts` | Extract JWT user or a specific field |
-| `@Roles(...roles)` | `src/common/decorators/roles.decorator.ts` | Role-based access metadata |
+| Decorator              | File                                              | Purpose                                                 |
+| ---------------------- | ------------------------------------------------- | ------------------------------------------------------- |
+| `@ApiAuth()`           | `src/common/decorators/api-auth.decorator.ts`     | Bearer auth + 401 response doc                          |
+| `@ApiEndpoint(opts)`   | `src/common/decorators/api-endpoint.decorator.ts` | `@ApiOperation` + `@ApiResponse` + `@HttpCode` combined |
+| `@Public()`            | `src/common/decorators/public.decorator.ts`       | Skip JWT guard on a route                               |
+| `@CurrentUser(field?)` | `src/common/decorators/current-user.decorator.ts` | Extract JWT user or a specific field                    |
+| `@Roles(...roles)`     | `src/common/decorators/roles.decorator.ts`        | Role-based access metadata                              |
 
 **Example:**
+
 ```typescript
 @Post()
 @ApiEndpoint({
@@ -155,13 +161,14 @@ async create(@Body() dto: CreateTodoListDto) {}
 
 `AppLogger` provides three distinct methods with fixed semantics:
 
-| Method | Level | Use case |
-|--------|-------|---------|
-| `logEvent(name, opts?)` | Always INFO | Named structured events (lifecycle, domain events) |
-| `logError(name, error, opts?)` | Always ERROR | Caught errors with OTel span recording |
-| `log(message, opts?)` | Configurable (default INFO) | Escape hatch for non-INFO/non-ERROR levels |
+| Method                         | Level                       | Use case                                           |
+| ------------------------------ | --------------------------- | -------------------------------------------------- |
+| `logEvent(name, opts?)`        | Always INFO                 | Named structured events (lifecycle, domain events) |
+| `logError(name, error, opts?)` | Always ERROR                | Caught errors with OTel span recording             |
+| `log(message, opts?)`          | Configurable (default INFO) | Escape hatch for non-INFO/non-ERROR levels         |
 
 **Do not pass `level:` to `logEvent()` or `logError()`.** If you need WARN or FATAL, use `log()`:
+
 ```typescript
 // Correct
 logger.logEvent('user.created', { attributes: { userId } });

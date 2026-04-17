@@ -4,8 +4,10 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
-import { PrismaService } from '@database/prisma.service';
-import { UsersRepository } from '@modules/users/users.repository';
+import { DatabaseService } from '@database/database.service';
+import { DbTransactionClient } from '@database/types';
+import { UsersDbService } from '@database/users/users.db-service';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { ErrorException } from '@errors/types/error-exception';
 import { AUT, DAT } from '@errors/error-codes';
 import { RegisterDto } from './dto/register.dto';
@@ -40,19 +42,22 @@ export class AuthService {
   constructor(
     private readonly config: AppConfigService,
     private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService,
-    private readonly usersRepository: UsersRepository,
+    private readonly usersDb: UsersDbService,
+    private readonly authCredentialsDb: AuthCredentialsDbService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   /**
    * Registers a new user with the provided credentials.
-   * Checks for email uniqueness, hashes password, creates user, generates tokens.
+   * Checks for email uniqueness, hashes password, then atomically creates the
+   * user row and issues a refresh token inside a single transaction — so a
+   * token-issuance failure rolls back the user row and leaves no orphan records.
    *
    * @param dto - Registration data
    * @returns User profile and token pair
    */
   async register(dto: RegisterDto): Promise<AuthResult> {
-    const existing = await this.usersRepository.findByEmail(dto.email);
+    const existing = await this.usersDb.findActiveByEmail(dto.email);
     if (existing) {
       throw new ErrorException(DAT.UNIQUE_VIOLATION, {
         message: 'Email already exists',
@@ -62,17 +67,22 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(dto.password);
 
-    const user = await this.usersRepository.create({
-      email: dto.email,
-      passwordHash,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      status: UserStatus.ACTIVE,
+    const { user, tokens } = await this.databaseService.runInTransaction(async tx => {
+      const createdUser = await this.usersDb.create(
+        {
+          email: dto.email,
+          passwordHash,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          status: UserStatus.ACTIVE,
+        },
+        tx,
+      );
+      const generated = await this.generateTokens(createdUser, tx);
+      return { user: createdUser, tokens: generated };
     });
 
-    const tokens = await this.generateTokens(user);
     const { passwordHash: _, ...safeUser } = user;
-
     return { user: safeUser, tokens };
   }
 
@@ -84,7 +94,7 @@ export class AuthService {
    * @returns User profile and token pair
    */
   async login(dto: LoginDto): Promise<AuthResult> {
-    const user = await this.usersRepository.findByEmail(dto.email);
+    const user = await this.usersDb.findActiveByEmail(dto.email);
 
     if (!user) {
       throw new ErrorException(AUT.INVALID_CREDENTIALS);
@@ -107,28 +117,19 @@ export class AuthService {
         const lockedUntil = new Date();
         lockedUntil.setMinutes(lockedUntil.getMinutes() + LOCK_DURATION_MINUTES);
 
-        await this.usersRepository.update(
-          { id: user.id },
-          { failedLoginCount: newFailedCount, lockedUntil },
-        );
+        await this.usersDb.recordFailedLogin(user.id, { count: newFailedCount, lockedUntil });
 
         throw new ErrorException(AUT.ACCOUNT_LOCKED);
       }
 
-      await this.usersRepository.update(
-        { id: user.id },
-        { failedLoginCount: newFailedCount },
-      );
+      await this.usersDb.recordFailedLogin(user.id, { count: newFailedCount });
 
       throw new ErrorException(AUT.INVALID_CREDENTIALS);
     }
 
     // Reset failed login count on success
     if (user.failedLoginCount > 0 || user.lockedUntil) {
-      await this.usersRepository.update(
-        { id: user.id },
-        { failedLoginCount: 0, lockedUntil: null },
-      );
+      await this.usersDb.resetFailedLogin(user.id);
     }
 
     const tokens = await this.generateTokens(user);
@@ -144,10 +145,7 @@ export class AuthService {
    * @returns New token pair
    */
   async refreshTokens(token: string): Promise<TokenPair> {
-    const refreshToken = await this.prisma.refreshToken.findUnique({
-      where: { token },
-      include: { user: true },
-    });
+    const refreshToken = await this.authCredentialsDb.findRefreshTokenByValueWithUser(token);
 
     if (!refreshToken) {
       throw new ErrorException(AUT.TOKEN_INVALID);
@@ -162,10 +160,7 @@ export class AuthService {
     }
 
     // Revoke old token (rotation)
-    await this.prisma.refreshToken.update({
-      where: { id: refreshToken.id },
-      data: { revokedAt: new Date() },
-    });
+    await this.authCredentialsDb.revokeRefreshToken(refreshToken.id);
 
     return this.generateTokens((refreshToken as typeof refreshToken & { user: User }).user);
   }
@@ -178,7 +173,7 @@ export class AuthService {
    * @param dto - Current and new password
    */
   async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
-    const user = await this.usersRepository.findUnique({ id: userId });
+    const user = await this.usersDb.findById(userId);
 
     if (!user) {
       throw ErrorException.notFound('User', userId);
@@ -191,22 +186,22 @@ export class AuthService {
 
     const newHash = await this.hashPassword(dto.newPassword);
 
-    await this.usersRepository.update({ id: userId }, { passwordHash: newHash });
+    await this.usersDb.updatePassword(userId, newHash);
 
     // Revoke all refresh tokens for this user
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.authCredentialsDb.revokeAllActiveRefreshTokensForUser(userId);
   }
 
   /**
    * Generates an access/refresh token pair for a user and stores the refresh token.
+   * When called within a transaction (e.g. from `register`), pass `tx` so the
+   * refresh-token insert participates in the same atomic unit.
    *
    * @param user - The user to generate tokens for
+   * @param tx - Optional transaction client; omit for non-transactional callers
    * @returns Access token and refresh token strings
    */
-  async generateTokens(user: User): Promise<TokenPair> {
+  async generateTokens(user: User, tx?: DbTransactionClient): Promise<TokenPair> {
     const jti = uuidv4();
     const refreshJti = uuidv4();
 
@@ -245,13 +240,10 @@ export class AuthService {
     const decoded = this.jwtService.decode(refreshToken) as { exp: number };
     const expiresAt = new Date(decoded.exp * 1000);
 
-    await this.prisma.refreshToken.create({
-      data: {
-        token: refreshToken,
-        userId: user.id,
-        expiresAt,
-      },
-    });
+    await this.authCredentialsDb.issueRefreshToken(
+      { token: refreshToken, userId: user.id, expiresAt },
+      tx,
+    );
 
     return { accessToken, refreshToken };
   }

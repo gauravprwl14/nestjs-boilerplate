@@ -1,11 +1,8 @@
 import { PaginationParams, PaginatedResult, PaginationMeta } from '@common/interfaces';
 import { DEFAULT_PAGE, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@common/constants';
 import { PrismaService } from '@database/prisma.service';
-import { Prisma } from '@prisma/client';
+import { DbTransactionClient } from '@database/types';
 
-/**
- * Delegate interface that each concrete delegate (e.g. prisma.user) must satisfy.
- */
 interface PrismaDelegate<
   TModel,
   TCreateInput,
@@ -15,8 +12,14 @@ interface PrismaDelegate<
   TOrderByInput,
 > {
   create(args: { data: TCreateInput; include?: Record<string, unknown> }): Promise<TModel>;
-  findUnique(args: { where: TWhereUniqueInput; include?: Record<string, unknown> }): Promise<TModel | null>;
-  findFirst(args: { where?: TWhereInput; include?: Record<string, unknown> }): Promise<TModel | null>;
+  findUnique(args: {
+    where: TWhereUniqueInput;
+    include?: Record<string, unknown>;
+  }): Promise<TModel | null>;
+  findFirst(args: {
+    where?: TWhereInput;
+    include?: Record<string, unknown>;
+  }): Promise<TModel | null>;
   findMany(args: {
     where?: TWhereInput;
     orderBy?: TOrderByInput | TOrderByInput[];
@@ -29,16 +32,6 @@ interface PrismaDelegate<
   count(args?: { where?: TWhereInput }): Promise<number>;
 }
 
-/**
- * Abstract generic base repository providing common CRUD operations.
- *
- * @typeParam TModel              - Prisma model type
- * @typeParam TCreateInput        - Prisma create input type
- * @typeParam TUpdateInput        - Prisma update input type
- * @typeParam TWhereUniqueInput   - Prisma where unique input type
- * @typeParam TWhereInput         - Prisma where input type
- * @typeParam TOrderByInput       - Prisma order-by input type
- */
 export abstract class BaseRepository<
   TModel,
   TCreateInput,
@@ -50,10 +43,13 @@ export abstract class BaseRepository<
   constructor(protected readonly prisma: PrismaService) {}
 
   /**
-   * Returns the Prisma delegate for the model (e.g. `this.prisma.user`).
-   * Must be implemented by each concrete repository.
+   * Returns the Prisma delegate bound to either a transaction client or the
+   * shared PrismaService. Concrete subclasses implement it, e.g.:
+   *   return client.user;
    */
-  protected abstract get delegate(): PrismaDelegate<
+  protected abstract delegateFor(
+    client: PrismaService | DbTransactionClient,
+  ): PrismaDelegate<
     TModel,
     TCreateInput,
     TUpdateInput,
@@ -62,41 +58,50 @@ export abstract class BaseRepository<
     TOrderByInput
   >;
 
-  /**
-   * Whether this repository supports soft-deletes (deletedAt field).
-   * Override in concrete repositories that use soft deletes.
-   */
   protected supportsSoftDelete = false;
 
-  /**
-   * Creates a new record.
-   */
-  async create(data: TCreateInput): Promise<TModel> {
-    return this.delegate.create({ data });
+  /** Resolves the active client (transaction override or default Prisma). */
+  protected client(tx?: DbTransactionClient): PrismaService | DbTransactionClient {
+    return tx ?? this.prisma;
+  }
+
+  /** Creates a new record. */
+  async create(data: TCreateInput, tx?: DbTransactionClient): Promise<TModel> {
+    return this.delegateFor(this.client(tx)).create({ data });
   }
 
   /**
    * Finds a single record by its unique identifier.
    * @param where    - Unique filter
    * @param include  - Optional relations to include
+   * @param tx       - Optional transaction client
    */
   async findUnique(
     where: TWhereUniqueInput,
     include?: Record<string, unknown>,
+    tx?: DbTransactionClient,
   ): Promise<TModel | null> {
-    return this.delegate.findUnique({ where, ...(include ? { include } : {}) });
+    return this.delegateFor(this.client(tx)).findUnique({
+      where,
+      ...(include ? { include } : {}),
+    });
   }
 
   /**
    * Finds the first record matching the given filter.
    * @param where    - Optional filter
    * @param include  - Optional relations to include
+   * @param tx       - Optional transaction client
    */
   async findFirst(
     where?: TWhereInput,
     include?: Record<string, unknown>,
+    tx?: DbTransactionClient,
   ): Promise<TModel | null> {
-    return this.delegate.findFirst({ ...(where ? { where } : {}), ...(include ? { include } : {}) });
+    return this.delegateFor(this.client(tx)).findFirst({
+      ...(where ? { where } : {}),
+      ...(include ? { include } : {}),
+    });
   }
 
   /**
@@ -104,13 +109,15 @@ export abstract class BaseRepository<
    * @param where    - Optional filter
    * @param orderBy  - Optional ordering
    * @param include  - Optional relations to include
+   * @param tx       - Optional transaction client
    */
   async findMany(
     where?: TWhereInput,
     orderBy?: TOrderByInput | TOrderByInput[],
     include?: Record<string, unknown>,
+    tx?: DbTransactionClient,
   ): Promise<TModel[]> {
-    return this.delegate.findMany({
+    return this.delegateFor(this.client(tx)).findMany({
       ...(where ? { where } : {}),
       ...(orderBy ? { orderBy } : {}),
       ...(include ? { include } : {}),
@@ -122,31 +129,30 @@ export abstract class BaseRepository<
    * @param params   - Pagination, sort, and filter parameters
    * @param where    - Optional where filter
    * @param include  - Optional relations to include
+   * @param tx       - Optional transaction client
    */
   async findManyPaginated(
     params: PaginationParams,
     where?: TWhereInput,
     include?: Record<string, unknown>,
+    tx?: DbTransactionClient,
   ): Promise<PaginatedResult<TModel>> {
     const page = Math.max(1, params.page ?? DEFAULT_PAGE);
-    const limit = Math.min(
-      Math.max(1, params.limit ?? DEFAULT_PAGE_LIMIT),
-      MAX_PAGE_LIMIT,
-    );
+    const limit = Math.min(Math.max(1, params.limit ?? DEFAULT_PAGE_LIMIT), MAX_PAGE_LIMIT);
     const skip = (page - 1) * limit;
+    const delegate = this.delegateFor(this.client(tx));
 
     const [data, total] = await Promise.all([
-      this.delegate.findMany({
+      delegate.findMany({
         ...(where ? { where } : {}),
         skip,
         take: limit,
         ...(include ? { include } : {}),
       }),
-      this.delegate.count({ ...(where ? { where } : {}) }),
+      delegate.count({ ...(where ? { where } : {}) }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
-
     const meta: PaginationMeta = {
       total,
       page,
@@ -155,7 +161,6 @@ export abstract class BaseRepository<
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     };
-
     return { data, meta };
   }
 
@@ -163,26 +168,34 @@ export abstract class BaseRepository<
    * Updates a record by its unique identifier.
    * @param where  - Unique filter
    * @param data   - Update data
+   * @param tx     - Optional transaction client
    */
-  async update(where: TWhereUniqueInput, data: TUpdateInput): Promise<TModel> {
-    return this.delegate.update({ where, data });
+  async update(
+    where: TWhereUniqueInput,
+    data: TUpdateInput,
+    tx?: DbTransactionClient,
+  ): Promise<TModel> {
+    return this.delegateFor(this.client(tx)).update({ where, data });
   }
 
   /**
    * Hard-deletes a record by its unique identifier.
    * @param where  - Unique filter
+   * @param tx     - Optional transaction client
    */
-  async delete(where: TWhereUniqueInput): Promise<TModel> {
-    return this.delegate.delete({ where });
+  async delete(where: TWhereUniqueInput, tx?: DbTransactionClient): Promise<TModel> {
+    return this.delegateFor(this.client(tx)).delete({ where });
   }
 
   /**
    * Soft-deletes a record by setting `deletedAt` to the current timestamp.
-   * Requires `supportsSoftDelete = true` and a model with a `deletedAt` field.
+   * Requires a model with a `deletedAt` field; the cast in the body sidesteps the
+   * generic `TUpdateInput` constraint, so only call this on aggregates that opt in.
    * @param where  - Unique filter
+   * @param tx     - Optional transaction client
    */
-  async softDelete(where: TWhereUniqueInput): Promise<TModel> {
-    return this.delegate.update({
+  async softDelete(where: TWhereUniqueInput, tx?: DbTransactionClient): Promise<TModel> {
+    return this.delegateFor(this.client(tx)).update({
       where,
       data: { deletedAt: new Date() } as unknown as TUpdateInput,
     });
@@ -191,9 +204,10 @@ export abstract class BaseRepository<
   /**
    * Restores a soft-deleted record by nulling `deletedAt`.
    * @param where  - Unique filter
+   * @param tx     - Optional transaction client
    */
-  async restore(where: TWhereUniqueInput): Promise<TModel> {
-    return this.delegate.update({
+  async restore(where: TWhereUniqueInput, tx?: DbTransactionClient): Promise<TModel> {
+    return this.delegateFor(this.client(tx)).update({
       where,
       data: { deletedAt: null } as unknown as TUpdateInput,
     });
@@ -202,40 +216,32 @@ export abstract class BaseRepository<
   /**
    * Returns the count of records matching the given filter.
    * @param where  - Optional filter
+   * @param tx     - Optional transaction client
    */
-  async count(where?: TWhereInput): Promise<number> {
-    return this.delegate.count({ ...(where ? { where } : {}) });
+  async count(where?: TWhereInput, tx?: DbTransactionClient): Promise<number> {
+    return this.delegateFor(this.client(tx)).count({ ...(where ? { where } : {}) });
   }
 
   /**
    * Returns true if at least one record matches the given filter.
    * @param where  - Optional filter
+   * @param tx     - Optional transaction client
    */
-  async exists(where?: TWhereInput): Promise<boolean> {
-    const cnt = await this.delegate.count({ ...(where ? { where } : {}) });
+  async exists(where?: TWhereInput, tx?: DbTransactionClient): Promise<boolean> {
+    const cnt = await this.delegateFor(this.client(tx)).count({
+      ...(where ? { where } : {}),
+    });
     return cnt > 0;
   }
 
   /**
    * Execute a callback within a Prisma transaction.
-   * All database operations within the callback share the same transaction.
-   *
-   * @param fn - Callback receiving the transaction client
-   * @param options - Optional transaction settings
-   * @param options.timeout - Transaction timeout in milliseconds (default: 10 000)
-   * @returns Result of the callback
-   * @throws Re-throws any error after Prisma processing
-   *
-   * @example
-   * ```typescript
-   * await this.repository.withTransaction(async (tx) => {
-   *   await tx.todoList.create({ data: listData });
-   *   await tx.todoItem.createMany({ data: itemsData });
-   * });
-   * ```
+   * Prefer `DatabaseService.runInTransaction(...)` from outside the DB layer.
+   * @param fn       - Callback receiving the transaction client
+   * @param options  - Transaction options (timeout in ms; default 10000)
    */
   async withTransaction<R>(
-    fn: (tx: Prisma.TransactionClient) => Promise<R>,
+    fn: (tx: DbTransactionClient) => Promise<R>,
     options?: { timeout?: number },
   ): Promise<R> {
     return this.prisma.$transaction(fn, {

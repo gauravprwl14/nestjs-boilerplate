@@ -24,7 +24,7 @@ Use this checklist before opening a pull request.
 - [ ] All queries on soft-deletable tables include `deletedAt: null` filter
 - [ ] Ownership is verified before any mutation (user owns the resource)
 - [ ] `passwordHash` is never returned in API responses — use `SafeUser` or explicit `select`
-- [ ] Multi-step mutations that must be atomic are wrapped in `prisma.$transaction()`
+- [ ] Multi-step mutations that must be atomic use `DatabaseService.runInTransaction()` (not `prisma.$transaction()` directly from feature code)
 - [ ] New columns with high query frequency have an index in the Prisma schema
 
 ## Auth & Security

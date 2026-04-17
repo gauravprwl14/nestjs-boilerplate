@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## Milestone Checklist
 
@@ -11,8 +11,10 @@ Last updated: 2026-04-16
 - [x] AppConfigModule (global, Zod-validated)
 - [x] AppLoggerModule (global, Pino-backed, trace-correlated)
 - [x] PrismaModule (global, `@prisma/adapter-pg` native driver)
+- [x] DatabaseModule (global, per-aggregate DbRepository + DbService, DatabaseService)
 - [x] TelemetryModule (global, OTel SDK)
-- [x] BaseRepository with soft-delete helpers
+- [x] BaseRepository with soft-delete helpers and tx-aware `delegateFor(client)` API
+- [x] Prisma schema relocated to `src/database/prisma/schema.prisma`
 - [x] Common infrastructure (filters, interceptors, middleware, pipes, decorators)
 - [x] Graceful shutdown (`bootstrap/graceful-shutdown.ts`)
 
@@ -100,6 +102,21 @@ Last updated: 2026-04-16
 - [ ] Test helpers: `createPrismaMock()`, mock factories for all entities
 - [ ] CI pipeline (GitHub Actions: lint → type-check → test → build)
 
+### Database Layer Refactor (branch: database-layer-refactor)
+
+- [x] Move Prisma schema to `src/database/prisma/`
+- [x] Relocate `BaseRepository` to `src/database/base.repository.ts`; tx-aware `delegateFor(client)` API
+- [x] Scaffold `DatabaseService` + `DatabaseModule` (`@Global()`)
+- [x] Migrate users aggregate → `UsersDbRepository` + `UsersDbService`
+- [x] Migrate auth-credentials aggregate → `AuthCredentialsDbRepository` + `AuthCredentialsDbService`
+- [x] Migrate todo-lists aggregate → `TodoListsDbRepository` + `TodoListsDbService`
+- [x] Migrate todo-items aggregate → `TodoItemsDbRepository` + `TodoItemsDbService` (owns `TodoItemTag` join table; `assignTag`/`removeTag` methods)
+- [x] Migrate tags aggregate → `TagsDbRepository` + `TagsDbService` (owns Tag catalog; join-table ownership stays with `TodoItemsDbService`)
+- [x] Wrap `AuthService.register` in `runInTransaction` + e2e rollback test (`test/e2e/auth-register-rollback.e2e-spec.ts`)
+- [x] Cleanup + doc sync (all 5 aggregates documented; `add-module` skill updated)
+
+All 20 unit-test suites (159 tests) pass. Feature code no longer writes Prisma calls directly — every module delegates to its aggregate `*DbService`.
+
 ## Current Focus
 
-Testing — all feature work is complete. Next action: write unit tests starting with `AuthService`.
+Database layer refactor — **complete**. Branch `database-layer-refactor` ready for review and merge.

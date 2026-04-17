@@ -17,7 +17,11 @@ src/
 │   ├── interfaces/            # Shared TypeScript interfaces (ApiResponse, Paginated)
 │   ├── middleware/            # RequestId, SecurityHeaders
 │   └── pipes/                 # ZodValidationPipe, ParseUuidPipe
-├── database/                  # PrismaService, PrismaModule, BaseRepository
+├── database/                  # PrismaService, PrismaModule, BaseRepository, DatabaseService, DatabaseModule
+│   ├── prisma/                # schema.prisma lives here
+│   ├── users/                 # UsersDbRepository, UsersDbService
+│   ├── auth-credentials/      # AuthCredentialsDbRepository, AuthCredentialsDbService
+│   └── todo-lists/            # TodoListsDbRepository, TodoListsDbService
 ├── errors/                    # ErrorException, domain error-code constants, Prisma error handler
 │   ├── error-codes/           # Domain constants: GEN, VAL, AUT, AUZ, DAT, SRV
 │   ├── handlers/              # prisma-error.handler.ts (Prisma -> ErrorException mapping)

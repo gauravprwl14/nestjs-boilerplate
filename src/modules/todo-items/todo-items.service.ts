@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { TodoItem } from '@prisma/client';
-import { TodoItemsRepository } from './todo-items.repository';
+import { TodoItem, TodoStatus } from '@prisma/client';
+import { TodoItemsDbService } from '@database/todo-items/todo-items.db-service';
 import { TodoListsService } from '@modules/todo-lists/todo-lists.service';
 import { CreateTodoItemDto } from './dto/create-todo-item.dto';
 import { UpdateTodoItemDto } from './dto/update-todo-item.dto';
@@ -14,12 +14,13 @@ import { ErrorException } from '@errors/types/error-exception';
 import { VAL } from '@errors/error-codes';
 
 /**
- * Service for todo item business logic, including status transitions and queue jobs.
+ * Service for todo item business logic, including status transitions
+ * and queue jobs.
  */
 @Injectable()
 export class TodoItemsService {
   constructor(
-    private readonly todoItemsRepository: TodoItemsRepository,
+    private readonly todoItemsDb: TodoItemsDbService,
     private readonly todoListsService: TodoListsService,
     @InjectQueue(TODO_QUEUE) private readonly todoQueue: Queue,
   ) {}
@@ -27,26 +28,25 @@ export class TodoItemsService {
   /**
    * Creates a new todo item in the given list, verifying ownership.
    * If a dueDate is set, enqueues an overdue-check job.
+   * @param userId - Owning user's UUID
+   * @param listId - TodoList UUID
+   * @param dto - Create payload
    */
   async create(userId: string, listId: string, dto: CreateTodoItemDto): Promise<TodoItem> {
     await this.todoListsService.findOne(userId, listId);
 
-    const item = await this.todoItemsRepository.create({
+    const item = await this.todoItemsDb.createInList(listId, {
       title: dto.title,
       description: dto.description,
       priority: dto.priority,
       dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-      todoList: { connect: { id: listId } },
     });
 
     if (dto.dueDate) {
       await this.todoQueue.add(
         'overdue-check',
         { todoItemId: item.id, type: 'overdue-check' },
-        {
-          delay: new Date(dto.dueDate).getTime() - Date.now(),
-          attempts: 3,
-        },
+        { delay: new Date(dto.dueDate).getTime() - Date.now(), attempts: 3 },
       );
     }
 
@@ -55,6 +55,9 @@ export class TodoItemsService {
 
   /**
    * Returns paginated todo items for a given list, verifying ownership.
+   * @param userId - Owning user's UUID
+   * @param listId - TodoList UUID
+   * @param query - Filters and pagination parameters
    */
   async findAll(
     userId: string,
@@ -63,7 +66,7 @@ export class TodoItemsService {
   ): Promise<PaginatedResult<TodoItem>> {
     await this.todoListsService.findOne(userId, listId);
 
-    return this.todoItemsRepository.findByListId(
+    return this.todoItemsDb.findByListId(
       listId,
       {
         status: query.status,
@@ -82,23 +85,24 @@ export class TodoItemsService {
 
   /**
    * Returns a single todo item, verifying ownership via list.userId.
+   * @param userId - Owning user's UUID
+   * @param id - Item's UUID
+   * @throws {ErrorException} when the item is not found for this user
    */
   async findOne(userId: string, id: string): Promise<TodoItem> {
-    const item = await this.todoItemsRepository.findFirst({
-      id,
-      deletedAt: null,
-      todoList: { userId },
-    });
-
+    const item = await this.todoItemsDb.findByIdForUser(userId, id);
     if (!item) {
       throw ErrorException.notFound('TodoItem', id);
     }
-
     return item;
   }
 
   /**
    * Updates a todo item, validating status transitions if status changes.
+   * @param userId - Owning user's UUID
+   * @param id - Item's UUID
+   * @param dto - Update payload
+   * @throws {ErrorException} when transition is invalid or item not found
    */
   async update(userId: string, id: string, dto: UpdateTodoItemDto): Promise<TodoItem> {
     const item = await this.findOne(userId, id);
@@ -112,24 +116,30 @@ export class TodoItemsService {
       }
     }
 
-    const updateData: Record<string, unknown> = { ...dto };
+    const patch: Parameters<typeof this.todoItemsDb.updateById>[1] = {
+      ...(dto.title !== undefined ? { title: dto.title } : {}),
+      ...(dto.description !== undefined ? { description: dto.description } : {}),
+      ...(dto.status !== undefined ? { status: dto.status } : {}),
+      ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+    };
 
-    if (dto.status === 'COMPLETED' && item.status !== 'COMPLETED') {
-      updateData.completedAt = new Date();
+    if (dto.status === TodoStatus.COMPLETED && item.status !== TodoStatus.COMPLETED) {
+      patch.completedAt = new Date();
     }
-
     if (dto.dueDate !== undefined) {
-      updateData.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+      patch.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
     }
 
-    return this.todoItemsRepository.update({ id }, updateData as Parameters<typeof this.todoItemsRepository.update>[1]);
+    return this.todoItemsDb.updateById(id, patch);
   }
 
   /**
    * Soft-deletes a todo item after verifying ownership.
+   * @param userId - Owning user's UUID
+   * @param id - Item's UUID
    */
   async remove(userId: string, id: string): Promise<TodoItem> {
     await this.findOne(userId, id);
-    return this.todoItemsRepository.softDelete({ id });
+    return this.todoItemsDb.softDeleteById(id);
   }
 }
