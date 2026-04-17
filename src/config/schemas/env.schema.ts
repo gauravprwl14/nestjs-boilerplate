@@ -25,7 +25,7 @@ export const appConfigSchema = z.object({
 });
 
 export const databaseConfigSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
 });
 
 export const otelConfigSchema = z.object({
@@ -46,10 +46,10 @@ export const shutdownConfigSchema = z.object({
 // ─── Combined schema ──────────────────────────────────────────────────────────
 
 export const envConfigSchema = appConfigSchema
-  .merge(databaseConfigSchema)
-  .merge(otelConfigSchema)
-  .merge(corsConfigSchema)
-  .merge(shutdownConfigSchema);
+  .extend(databaseConfigSchema.shape)
+  .extend(otelConfigSchema.shape)
+  .extend(corsConfigSchema.shape)
+  .extend(shutdownConfigSchema.shape);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
