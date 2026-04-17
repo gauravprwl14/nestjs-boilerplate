@@ -7,7 +7,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
 import { LogLevel } from '@logger/logger.interfaces';
@@ -16,6 +16,8 @@ import { ErrorCodeDefinition } from '@errors/interfaces/error.interfaces';
 import { handlePrismaError, isPrismaError } from '@errors/handlers/prisma-error.handler';
 import { GEN, VAL, AUT, AUZ, DAT, SRV } from '@errors/error-codes';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
+import { RedactorService } from '@common/redaction/redactor.service';
+import { recordExceptionOnSpan } from '@telemetry/utils/record-exception.util';
 
 /**
  * Global exception filter that catches all unhandled exceptions and converts
@@ -31,6 +33,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   constructor(
     private readonly logger: AppLogger,
     private readonly config: AppConfigService,
+    private readonly redactor: RedactorService,
   ) {
     this.logger.setContext(AllExceptionsFilter.name);
   }
@@ -49,33 +52,33 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const error = this.normalise(exception);
 
     // Attribute the error to the active HTTP server span so the trace carries
-    // the failure. Without this, errors thrown in middleware (e.g. MockAuth's
-    // AUT.UNAUTHENTICATED) or anywhere else reach the filter, but the span
-    // looks successful in Tempo — no exception event, no error status, no
-    // error.* attributes. That breaks the Traces Drilldown error panels and
-    // any TraceQL error queries.
+    // the failure. The filter is the single authoritative HTTP-span recorder:
+    // `recordExceptionOnSpan` emits exactly one `exception` event (plus
+    // `exception.cause.N` for nested causes), sets the `error.*` attributes
+    // when the error is an ErrorException, and — per OTel HTTP semconv — only
+    // marks the span status as ERROR for 5xx (4xx is a correctly-rejected
+    // client request, not a server fault).
     if (span) {
-      const cause = exception instanceof Error ? exception : new Error(String(exception));
-      span.recordException(cause);
+      recordExceptionOnSpan(error, {
+        span,
+        setStatus: error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR,
+        redactString: (s): string => this.redactor.redactString(s),
+      });
       span.setAttributes({
-        'error.code': error.code,
-        'error.type': error.definition.errorType,
-        'error.category': error.definition.errorCategory,
         'http.status_code': error.statusCode,
         'http.method': request.method,
-        'http.url': request.url,
+        'http.route':
+          (request as Request & { route?: { path?: string } }).route?.path ?? request.url,
       });
-      // Per OTel HTTP semconv: only 5xx should mark the server span as ERROR.
-      // 4xx is a correctly-rejected client request, not a server fault.
-      if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
-        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-      }
     }
 
     // Log at appropriate level based on HTTP status:
-    // 5xx -> ERROR (logError), 4xx -> WARN (log)
+    // 5xx -> ERROR (logError), 4xx -> WARN (log). We pass `recordException: false`
+    // because the filter already recorded the exception on the HTTP span above —
+    // this is the single authoritative recorder for the HTTP layer.
     if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.logError('http.error', error, {
+        recordException: false,
         attributes: {
           requestId,
           'http.status': error.statusCode,
