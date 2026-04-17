@@ -22,6 +22,22 @@ Before Task 1:
 
 Every task ends with the gate: **`npm run type:check && npm test`** must pass. If it doesn't, fix before committing.
 
+### Hard rules for every commit on this branch
+
+These were learned the hard way during Tasks 1 and 2. Honor them on every subsequent task:
+
+1. **Commit with `SKIP_DOC_CHECK=1`.** The repo's Husky pre-commit hook blocks code-only commits; docs are intentionally deferred to Task 10. Use:
+   ```bash
+   SKIP_DOC_CHECK=1 git commit -m "..."
+   ```
+   Do **not** use `--no-verify` (it would also skip `lint-staged`, which we want to keep).
+2. **Commit message subject rules (commitlint):**
+   - Header ≤ 72 characters (enforced).
+   - Subject (after the `type(scope):` prefix) must be **all lowercase** — `restore JSDoc` fails, `restore jsdoc` passes.
+3. **Never run global formatters.** Do **not** run `npm run format`, `npm run lint -- --fix`, or `npx prettier --write` against anything beyond the files explicitly listed in the task's Files block. A previous implementer did this and prettier-touched 40+ unrelated files; the reformats had to be reverted.
+4. **JSDoc on every public method.** The project convention (in `CLAUDE.md`) requires JSDoc on all public class methods. When Task code samples below show a method signature without JSDoc, add JSDoc that describes params, return type, and (where relevant) thrown errors. Match the style of the existing codebase.
+5. **If a task's Files list misses a related file that also must change**, do the minimum extra edit and call it out in your DONE report — do not silently expand scope beyond that.
+
 ---
 
 ## Task 1: Move Prisma schema to `src/database/prisma/`
