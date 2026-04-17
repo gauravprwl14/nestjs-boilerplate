@@ -42,6 +42,11 @@ const buildHost = (
 };
 
 // ─── OTel fixture for span-recording assertions ──────────────────────────
+// Each jest worker gets its own heap. We deliberately skip `trace.disable()`
+// and `context.disable()` in afterAll — the worker exits cleanly after the
+// suite finishes, and those destructive global resets have caused intermittent
+// native-level jest-worker crashes (SIGSEGV) when multiple OTel-heavy specs
+// run in parallel workers (ts-jest + native deps under memory pressure).
 const contextManager = new AsyncLocalStorageContextManager();
 contextManager.enable();
 context.setGlobalContextManager(contextManager);
@@ -52,12 +57,6 @@ const provider = new BasicTracerProvider({
 });
 trace.setGlobalTracerProvider(provider);
 const tracer = trace.getTracer('all-exceptions-filter-test');
-
-afterAll(async () => {
-  await provider.shutdown();
-  trace.disable();
-  context.disable();
-});
 
 /**
  * Runs `fn` inside an active span and returns the finished ReadableSpan so

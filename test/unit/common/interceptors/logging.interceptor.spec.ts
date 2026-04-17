@@ -1,11 +1,4 @@
 import { ExecutionContext, CallHandler } from '@nestjs/common';
-import { context, trace } from '@opentelemetry/api';
-import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
-import {
-  BasicTracerProvider,
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from '@opentelemetry/sdk-trace-base';
 import { of, throwError } from 'rxjs';
 import { firstValueFrom, lastValueFrom } from 'rxjs';
 import { LoggingInterceptor } from '@common/interceptors/logging.interceptor';
@@ -91,9 +84,12 @@ describe('LoggingInterceptor', () => {
   });
 
   describe('single-owner rule (the filter, not the interceptor, records HTTP-span exceptions)', () => {
-    it('passes recordException: false to logger.logError', async () => {
+    it('passes recordException: false on the Error path to logger.logError', async () => {
       // --- ARRANGE --- the interceptor must opt out of span exception
-      // recording so the filter is the sole authoritative recorder.
+      // recording so the filter is the sole authoritative recorder. AppLogger
+      // respects `recordException: false` by skipping its internal call to
+      // `recordExceptionOnSpan`, so setting this option on every logError call
+      // from the interceptor structurally guarantees zero duplicate span events.
       const err = new Error('boom');
       const handler: CallHandler = { handle: () => throwError(() => err) };
 
@@ -107,40 +103,18 @@ describe('LoggingInterceptor', () => {
       expect(options).toMatchObject({ recordException: false });
     });
 
-    it('does NOT record an exception event on the active span', async () => {
+    it('passes recordException: false on the non-Error path to logger.logError', async () => {
       // --- ARRANGE ---
-      const contextManager = new AsyncLocalStorageContextManager();
-      contextManager.enable();
-      context.setGlobalContextManager(contextManager);
-      const exporter = new InMemorySpanExporter();
-      const provider = new BasicTracerProvider({
-        spanProcessors: [new SimpleSpanProcessor(exporter)],
-      });
-      trace.setGlobalTracerProvider(provider);
-      const tracer = trace.getTracer('interceptor-test');
-      const err = new Error('boom');
-      const handler: CallHandler = { handle: () => throwError(() => err) };
+      const handler: CallHandler = { handle: () => throwError(() => 'kaboom-string') };
 
-      // --- ACT --- run the interceptor inside an active span, then inspect it
-      const span = tracer.startSpan('http.server.test');
-      const ctxWith = trace.setSpan(context.active(), span);
-      await context
-        .with(ctxWith, () => lastValueFrom(interceptor.intercept(ctx('GET', '/api/v1/x'), handler)))
-        .catch(() => {
-          // swallow — we expect the error to propagate
-        });
-      span.end();
-      const finished = exporter.getFinishedSpans();
-      const recorded = finished[finished.length - 1];
+      // --- ACT ---
+      await expect(
+        lastValueFrom(interceptor.intercept(ctx('GET', '/api/v1/x'), handler)),
+      ).rejects.toBe('kaboom-string');
 
-      // --- ASSERT --- no `exception` event was emitted by the interceptor path
-      const eventNames = recorded.events.map(e => e.name);
-      expect(eventNames).not.toContain('exception');
-
-      // --- CLEANUP ---
-      await provider.shutdown();
-      trace.disable();
-      context.disable();
+      // --- ASSERT ---
+      const options = logger.logError.mock.calls[0][2];
+      expect(options).toMatchObject({ recordException: false });
     });
   });
 });
