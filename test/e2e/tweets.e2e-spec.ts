@@ -97,7 +97,7 @@ describe('Tweets e2e (happy path)', () => {
       .expect(200);
 
     // Assert — the new tweet is present
-    const ids = (listRes.body.data as Array<{ id: string }>).map((t) => t.id);
+    const ids = (listRes.body.data as Array<{ id: string }>).map(t => t.id);
     expect(ids).toContain(created.id);
   });
 
