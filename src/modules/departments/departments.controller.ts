@@ -2,10 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Post, UsePipes } from '@ne
 import { ApiTags, ApiSecurity } from '@nestjs/swagger';
 import { ZodValidationPipe } from '@common/pipes/zod-validation.pipe';
 import { DepartmentsService, DepartmentTreeNode } from './departments.service';
-import {
-  CreateDepartmentDto,
-  CreateDepartmentSchema,
-} from './dto/create-department.dto';
+import { CreateDepartmentDto, CreateDepartmentSchema } from './dto/create-department.dto';
 import {
   CreateDepartmentSwagger,
   ListDepartmentsSwagger,
