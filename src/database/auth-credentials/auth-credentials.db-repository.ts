@@ -178,4 +178,37 @@ export class AuthCredentialsDbRepository extends BaseRepository<
       data: { status: ApiKeyStatus.REVOKED },
     });
   }
+
+  /**
+   * Finds an API key by its SHA-256 hash, eagerly loading the owning user.
+   * Used by the Passport API key strategy during authentication.
+   *
+   * @param keyHash - The SHA-256 hash of the incoming raw key
+   * @param tx - Optional transaction client
+   * @returns The ApiKey with its owning user, or null if the hash does not match
+   */
+  async findApiKeyByHashWithUser(
+    keyHash: string,
+    tx?: DbTransactionClient,
+  ): Promise<(ApiKey & { user: User }) | null> {
+    return this.client(tx).apiKey.findUnique({
+      where: { keyHash },
+      include: { user: true },
+    }) as Promise<(ApiKey & { user: User }) | null>;
+  }
+
+  /**
+   * Stamps `lastUsedAt` on an API key to the current timestamp.
+   * Fire-and-forget from the Passport strategy — non-blocking by design.
+   *
+   * @param keyId - The API key's UUID
+   * @param tx - Optional transaction client
+   * @returns The updated ApiKey record
+   */
+  async touchApiKeyLastUsed(keyId: string, tx?: DbTransactionClient): Promise<ApiKey> {
+    return this.client(tx).apiKey.update({
+      where: { id: keyId },
+      data: { lastUsedAt: new Date() },
+    });
+  }
 }
