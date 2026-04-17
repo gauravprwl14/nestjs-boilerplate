@@ -41,9 +41,11 @@ export class TweetsDbRepository extends BaseRepository<
 
   private tweetDepartmentDelegate(client: PrismaService | DbTransactionClient) {
     if (client === this.prisma) {
-      return (this.prisma.tenantScoped as unknown as {
-        tweetDepartment: Prisma.TweetDepartmentDelegate;
-      }).tweetDepartment;
+      return (
+        this.prisma.tenantScoped as unknown as {
+          tweetDepartment: Prisma.TweetDepartmentDelegate;
+        }
+      ).tweetDepartment;
     }
     return (client as DbTransactionClient).tweetDepartment;
   }
@@ -75,12 +77,14 @@ export class TweetsDbRepository extends BaseRepository<
   ): Promise<void> {
     if (rows.length === 0) return;
     const delegate = this.tweetDepartmentDelegate(this.client(tx));
-    await (delegate as unknown as {
-      createMany: (args: {
-        data: Array<{ tweetId: string; departmentId: string; companyId: string }>;
-        skipDuplicates?: boolean;
-      }) => Promise<{ count: number }>;
-    }).createMany({ data: rows, skipDuplicates: true });
+    await (
+      delegate as unknown as {
+        createMany: (args: {
+          data: Array<{ tweetId: string; departmentId: string; companyId: string }>;
+          skipDuplicates?: boolean;
+        }) => Promise<{ count: number }>;
+      }
+    ).createMany({ data: rows, skipDuplicates: true });
   }
 
   /**
@@ -113,9 +117,11 @@ export class TweetsDbRepository extends BaseRepository<
     tx?: DbTransactionClient,
   ): Promise<TimelineRow[]> {
     const client = this.client(tx);
-    return (client as unknown as {
-      $queryRaw: <T>(sql: Prisma.Sql) => Promise<T>;
-    }).$queryRaw<TimelineRow[]>(Prisma.sql`
+    return (
+      client as unknown as {
+        $queryRaw: <T>(sql: Prisma.Sql) => Promise<T>;
+      }
+    ).$queryRaw<TimelineRow[]>(Prisma.sql`
       WITH RECURSIVE
       user_direct_depts AS (
         SELECT ud.department_id AS id
