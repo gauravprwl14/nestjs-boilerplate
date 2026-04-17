@@ -19,40 +19,65 @@ per-department visibility.
   - [Department Hierarchy Handling](#department-hierarchy-handling)
 - [Further Reading](#further-reading) — architecture, sequence diagrams, guides
 - [Out of Scope](#out-of-scope)
-- [FAQ](#faq)
 - [Tech Stack](#tech-stack)
 - [Project Layout](#project-layout)
+- [FAQ](#faq)
 
 ---
 
 ## How to Run
 
-Pick one path. The first is the zero-deps happy path.
+Four short steps: **clone → start → call → test.**
 
-### A. Everything in containers (recommended)
-
-Needs only Podman (or Docker). App + Postgres + observability boot together,
-with migrations and seed auto-applied (idempotent).
+### 1. Clone
 
 ```bash
-podman compose up -d                         # or: docker compose up -d
+git clone git@github.com:stmn-gcc-hiring/stmn-backend-test-gauravP.git
+cd stmn-backend-test-gauravP
 ```
 
-- API: <http://localhost:3000> · Swagger at `/docs`
-- Grafana: <http://localhost:3001> (anonymous admin)
+<sub>HTTPS: `git clone https://github.com/stmn-gcc-hiring/stmn-backend-test-gauravP.git`</sub>
 
-### B. App on host, Postgres in container (fastest dev loop)
+### 2. Start the app
+
+Pick the row that matches your setup, then run the commands under that option.
+
+| Option                            | What runs where                        | Use when                       | Needs                    |
+| --------------------------------- | -------------------------------------- | ------------------------------ | ------------------------ |
+| **A. Docker-all** _(recommended)_ | App + Postgres + Grafana in containers | First run / demo               | Podman or Docker only    |
+| **B. Hybrid**                     | Postgres in a container, app on host   | Active development (fast HMR)  | Podman/Docker + Node     |
+| **C. Native**                     | Both on host                           | No container runtime available | Node + local Postgres 16 |
+
+<details>
+<summary><b>A. Docker-all</b> — zero-deps happy path</summary>
 
 ```bash
-podman compose up -d postgres                 # DB only, mapped to host :5433
+podman compose up -d            # or: docker compose up -d
+```
+
+Migrations and seed run automatically (idempotent).
+
+- API &nbsp;&nbsp;· <http://localhost:3000> · Swagger at `/docs`
+- Grafana · <http://localhost:3001> (anonymous admin)
+
+</details>
+
+<details>
+<summary><b>B. Hybrid</b> — Postgres in a container, app on host</summary>
+
+```bash
+podman compose up -d postgres
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/enterprise_twitter_dev?schema=public"
 npm install
-npm run start:dev:seeded                      # migrate + seed + start:dev
+npm run start:dev:seeded        # migrate + seed + start:dev
 ```
 
-### C. Everything on host (no containers)
+</details>
 
-Requires a local **Postgres 16** with an empty `enterprise_twitter_dev` database.
+<details>
+<summary><b>C. Native</b> — both on host (requires local Postgres 16)</summary>
+
+Create an empty `enterprise_twitter_dev` database first, then:
 
 ```bash
 export DATABASE_URL="postgresql://<user>:<pwd>@localhost:5432/enterprise_twitter_dev?schema=public"
@@ -60,36 +85,63 @@ npm install
 npm run start:dev:seeded
 ```
 
-More detail (individual services, observability-only boot, re-seed):
-[`docs/coding-guidelines/09-development-workflow.md`](docs/coding-guidelines/09-development-workflow.md).
+</details>
 
-### Making a request
+> More detail (individual services, observability-only boot, re-seed):
+> [`docs/coding-guidelines/09-development-workflow.md`](docs/coding-guidelines/09-development-workflow.md).
 
-The seed prints every user UUID on first run. To fetch one anytime:
+### 3. Make a request
+
+Grab a seeded user id, then pass it as the `x-user-id` header:
 
 ```bash
+# List user ids (seed also prints them to stdout on first run)
 podman compose exec postgres \
   psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, email FROM users;'
-```
 
-Then set `x-user-id`:
+# Read your timeline
+curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
 
-```bash
-curl -H "x-user-id: <ALICE>" http://localhost:3000/api/v1/timeline
-
-curl -H "x-user-id: <ALICE>" -H "Content-Type: application/json" \
+# Post a tweet
+curl -H "x-user-id: <UUID>" -H "Content-Type: application/json" \
      -X POST http://localhost:3000/api/v1/tweets \
      -d '{"content":"hello","visibility":"COMPANY"}'
 ```
 
-Missing or unknown header → `401 AUT0001`.
+Missing or unknown `x-user-id` → `401 AUT0001`. More lookup options in the [FAQ](#faq).
 
-### Tests
+#### Using Swagger UI or Postman
+
+Every protected route requires the same `x-user-id` header. Here's where to set
+it in the two most common clients so you don't paste it per-request:
+
+- **Swagger UI** (`http://localhost:3000/docs`) —
+  1. Click the green **Authorize** 🔒 button at the top right.
+  2. In the `x-user-id (apiKey)` field, paste a UUID from the seed users table.
+  3. Click **Authorize** → **Close**. The header is now attached to every
+     "Try it out" request in this tab.
+- **Postman / Insomnia / Bruno** — open the collection (or the individual
+  request) and add a header on the **Headers** tab:
+  - Key: `x-user-id`
+  - Value: `<UUID>` (a seeded user id — see Step 3 above or the [FAQ](#faq))
+    Save this on the **collection** level (Postman → collection → _Variables_ or
+    _Authorization_ → Headers) so every request under it inherits the header.
+- **curl / HTTPie** — pass `-H "x-user-id: <UUID>"` on each call (as shown
+  above).
+
+> The header name is defined by `USER_ID_HEADER` in
+> `src/common/constants/app.constants.ts` and declared on each controller via
+> `@ApiSecurity('x-user-id')` (see
+> `src/modules/tweets/tweets.controller.ts:15` and
+> `src/modules/departments/departments.controller.ts:20`), which is what makes
+> the **Authorize** button appear in Swagger UI.
+
+### 4. Run tests
 
 ```bash
-npm test                  # unit + ACL-matrix integration
-npm run test:e2e          # HTTP round-trip
-npm run test:cov          # with coverage (≥ 70% global, ≥ 80% services)
+npm test           # unit + ACL-matrix integration
+npm run test:e2e   # HTTP round-trip
+npm run test:cov   # coverage (≥ 70% global, ≥ 80% services)
 ```
 
 ---
@@ -469,69 +521,6 @@ where the reasoning and a sketch of how it would be added are documented.
 
 ---
 
-## FAQ
-
-**How do I get a user id to use as `x-user-id`?**
-
-The seed prints every user's UUID to stdout on first run. If the DB is already
-seeded (the seed is idempotent — see `prisma/seed.ts:18-22`), query the `users`
-table directly:
-
-```bash
-podman compose exec postgres \
-  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, name, email FROM users;'
-```
-
-Or re-run the seed printer only (safe; no-ops if data exists):
-
-```bash
-npm run prisma:seed
-```
-
-Or open Prisma Studio:
-
-```bash
-npm run prisma:studio
-```
-
-> Tables are snake-plural (`users`, `companies`, `departments`, `tweets`, …) via
-> Prisma `@@map` directives — `SELECT … FROM "user"` will fail with
-> `relation "user" does not exist`.
-
-**Why does `SELECT … FROM "user"` fail?**
-
-See above — every model in `src/database/prisma/schema.prisma` is mapped to a
-plural snake_case table name. Use `users`, not `"user"`.
-
-**I get `401 AUT0001` on every request.**
-
-The `x-user-id` header is missing or the UUID isn't in the `users` table. Grab a
-valid id via the command above and pass it on every request:
-
-```bash
-curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
-```
-
-Swagger (`/docs`) and health probes are `@Public()` and do not need the header.
-
-**How do I force a re-seed?**
-
-The seed short-circuits if any company row exists. Truncate first, then re-run:
-
-```bash
-podman compose exec postgres psql -U postgres -d enterprise_twitter_dev -c \
-  'TRUNCATE companies, departments, users, user_departments, tweets, tweet_departments CASCADE;'
-npm run prisma:seed
-```
-
-Or wipe and re-migrate the whole schema (drops all data):
-
-```bash
-npm run prisma:migrate:reset
-```
-
----
-
 ## Tech Stack
 
 | Layer             | Tech                                                                                                                  | Version         | Why it's in the stack                                                                                                                                                                                                                                |
@@ -601,4 +590,67 @@ docs/
 ├── plans/                                     # feature-plan template
 ├── prd/                                       # product requirements
 └── task-tracker/                              # project status
+```
+
+---
+
+## FAQ
+
+**How do I get a user id to use as `x-user-id`?**
+
+The seed prints every user's UUID to stdout on first run. If the DB is already
+seeded (the seed is idempotent — see `prisma/seed.ts:18-22`), query the `users`
+table directly:
+
+```bash
+podman compose exec postgres \
+  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, name, email FROM users;'
+```
+
+Or re-run the seed printer only (safe; no-ops if data exists):
+
+```bash
+npm run prisma:seed
+```
+
+Or open Prisma Studio:
+
+```bash
+npm run prisma:studio
+```
+
+> Tables are snake-plural (`users`, `companies`, `departments`, `tweets`, …) via
+> Prisma `@@map` directives — `SELECT … FROM "user"` will fail with
+> `relation "user" does not exist`.
+
+**Why does `SELECT … FROM "user"` fail?**
+
+See above — every model in `src/database/prisma/schema.prisma` is mapped to a
+plural snake_case table name. Use `users`, not `"user"`.
+
+**I get `401 AUT0001` on every request.**
+
+The `x-user-id` header is missing or the UUID isn't in the `users` table. Grab a
+valid id via the command above and pass it on every request:
+
+```bash
+curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
+```
+
+Swagger (`/docs`) and health probes are `@Public()` and do not need the header.
+
+**How do I force a re-seed?**
+
+The seed short-circuits if any company row exists. Truncate first, then re-run:
+
+```bash
+podman compose exec postgres psql -U postgres -d enterprise_twitter_dev -c \
+  'TRUNCATE companies, departments, users, user_departments, tweets, tweet_departments CASCADE;'
+npm run prisma:seed
+```
+
+Or wipe and re-migrate the whole schema (drops all data):
+
+```bash
+npm run prisma:migrate:reset
 ```
