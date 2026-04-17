@@ -58,11 +58,7 @@ export function initLoggerDelegation(appLogger: AppLogger): void {
    * Log a named structured event at INFO level.
    * Delegates to AppLogger.logEvent() with the calling Logger's context.
    */
-  proto.logEvent = function (
-    this: Logger,
-    eventName: string,
-    options?: ILogEventOptions,
-  ): void {
+  proto.logEvent = function (this: Logger, eventName: string, options?: ILogEventOptions): void {
     if (!appLoggerInstance) {
       this.log(`[logEvent] ${eventName}`);
       return;
@@ -94,10 +90,7 @@ export function initLoggerDelegation(appLogger: AppLogger): void {
    * Add attributes to the active OTel span without logging.
    * Delegates to AppLogger.addSpanAttributes().
    */
-  proto.addSpanAttributes = function (
-    this: Logger,
-    attributes: LogAttributes,
-  ): void {
+  proto.addSpanAttributes = function (this: Logger, attributes: LogAttributes): void {
     if (!appLoggerInstance) return;
     appLoggerInstance.addSpanAttributes(attributes);
   };
