@@ -203,7 +203,9 @@ describe('TweetsController', () => {
 
     it('should trim whitespace on content before validation', () => {
       // --- ACT ---
-      const out = pipe.transform({ content: '   hello   ', visibility: 'COMPANY' }, {} as any);
+      const out = pipe.transform({ content: '   hello   ', visibility: 'COMPANY' }, {} as any) as {
+        content: string;
+      };
 
       // --- ASSERT ---
       expect(out.content).toBe('hello');
