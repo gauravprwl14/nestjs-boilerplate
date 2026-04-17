@@ -77,9 +77,9 @@ export function initOtelSdk(config: OtelConfig): void {
     instrumentations: [
       getNodeAutoInstrumentations({
         '@opentelemetry/instrumentation-http': {
-          ignoreIncomingRequestHook: (req) => {
+          ignoreIncomingRequestHook: req => {
             const url = req.url ?? '';
-            return OTEL_IGNORE_PATHS.some((pattern) => pattern.test(url));
+            return OTEL_IGNORE_PATHS.some(pattern => pattern.test(url));
           },
         },
         // Disable noisy fs instrumentation
@@ -108,7 +108,7 @@ export async function shutdownOtelSdk(): Promise<void> {
     return;
   }
 
-  const shutdownTimeout = new Promise<void>((resolve) =>
+  const shutdownTimeout = new Promise<void>(resolve =>
     setTimeout(resolve, OTEL_SHUTDOWN_TIMEOUT_MS),
   );
 
