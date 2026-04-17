@@ -35,8 +35,7 @@ without the read paths to use them.
 
 ## Registration, login, JWT, API keys
 
-The boilerplate originally shipped with a JWT + API key auth stack. We
-removed it because the assignment explicitly allows mock auth via a
+Thought of integrating the JWT + API key auth stack. Removed it because the assignment explicitly allows mock auth via a
 header, and carrying the full stack made the multi-tenant story harder to
 read.
 
