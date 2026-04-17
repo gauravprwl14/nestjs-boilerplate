@@ -31,17 +31,17 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   /** Unique constraint failed */
   P2002: {
     definition: DAT.UNIQUE_VIOLATION,
-    message: (meta) => {
+    message: meta => {
       const target = Array.isArray(meta?.['target'])
         ? (meta['target'] as string[]).join(', ')
-        : (meta?.['target'] as string | undefined) ?? 'unknown field';
+        : ((meta?.['target'] as string | undefined) ?? 'unknown field');
       return `Unique constraint violation on: ${target}`;
     },
   },
   /** Foreign key constraint failed */
   P2003: {
     definition: DAT.FOREIGN_KEY_VIOLATION,
-    message: (meta) => {
+    message: meta => {
       const field = (meta?.['field_name'] as string | undefined) ?? 'unknown field';
       return `Foreign key constraint violation on: ${field}`;
     },
@@ -49,7 +49,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   /** Record not found */
   P2025: {
     definition: DAT.NOT_FOUND,
-    message: (meta) => {
+    message: meta => {
       const cause = (meta?.['cause'] as string | undefined) ?? 'Record not found';
       return cause;
     },
@@ -57,7 +57,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   /** A required value was not provided */
   P2011: {
     definition: VAL.REQUIRED_FIELD,
-    message: (meta) => {
+    message: meta => {
       const constraint = (meta?.['constraint'] as string | undefined) ?? 'unknown field';
       return `Null constraint violation on: ${constraint}`;
     },
@@ -65,7 +65,7 @@ export const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapEntry> = {
   /** The provided value for the column is too long */
   P2000: {
     definition: VAL.FIELD_TOO_LONG,
-    message: (meta) => {
+    message: meta => {
       const column = (meta?.['column_name'] as string | undefined) ?? 'unknown column';
       return `Value too long for column: ${column}`;
     },
