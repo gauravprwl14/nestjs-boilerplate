@@ -52,8 +52,7 @@ export function setupProcessHandlers(
   // ─── Unhandled promise rejection ────────────────────────────────────────────
 
   process.on(PROCESS_EVENT.UNHANDLED_REJECTION, (reason: unknown) => {
-    const error =
-      reason instanceof Error ? reason : new Error(String(reason));
+    const error = reason instanceof Error ? reason : new Error(String(reason));
 
     logger.logError('process.unhandledRejection', error);
     // No process.exit — unhandled rejections are considered recoverable

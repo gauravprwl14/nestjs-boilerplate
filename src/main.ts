@@ -19,7 +19,6 @@ import {
   SWAGGER_TITLE,
   SWAGGER_DESCRIPTION,
   SWAGGER_VERSION,
-  API_KEY_HEADER,
 } from '@common/constants';
 
 async function bootstrap(): Promise<void> {
@@ -71,7 +70,7 @@ function setupSecurity(app: INestApplication, config: AppConfigService): void {
     origin: config.cors.origins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', API_KEY_HEADER],
+    allowedHeaders: ['Content-Type', 'x-user-id'],
   });
 }
 
@@ -117,14 +116,9 @@ function setupSwagger(app: INestApplication, config: AppConfigService, logger: A
       .setTitle(SWAGGER_TITLE)
       .setDescription(SWAGGER_DESCRIPTION)
       .setVersion(SWAGGER_VERSION)
-      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'jwt')
-      .addApiKey({ type: 'apiKey', in: 'header', name: API_KEY_HEADER }, 'api-key')
-      .addTag('Health', 'Health check endpoints. Error codes: GEN0003')
-      .addTag('Authentication', 'User authentication and API key management. Error codes: AUT0001-AUT0007')
-      .addTag('Users', 'User profile management. Error codes: DAT0001, VAL0001')
-      .addTag('Todo Lists', 'Todo list CRUD operations. Error codes: DAT0001, DAT0002, VAL0001')
-      .addTag('Todo Items', 'Todo item CRUD and status transitions. Error codes: DAT0001, DAT0002, VAL0001, VAL0004')
-      .addTag('Tags', 'Tag CRUD and assignment to todo items. Error codes: DAT0001, DAT0002, DAT0003')
+      .addApiKey({ type: 'apiKey', in: 'header', name: 'x-user-id' }, 'x-user-id')
+      .addTag('Departments', 'Department CRUD and hierarchy. Error codes: DAT0001, DAT0009, VAL0001, VAL0008')
+      .addTag('Tweets', 'Tweet creation + timeline. Error codes: DAT0001, VAL0001, VAL0007, VAL0008, AUZ0004')
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
