@@ -4,6 +4,12 @@
 
 Inject `AppLogger` from `@logger/logger.service`. It wraps Pino and adds OTel trace correlation.
 
+When `OTEL_ENABLED=true`, every Pino log is additionally forwarded to the OTel
+Logs API by `@opentelemetry/instrumentation-pino`, which the OTel SDK ships to
+the collector via `OTLPLogExporter` + `BatchLogRecordProcessor`. The collector
+forwards to Loki. Keep using `AppLogger` normally — no extra wiring is
+required.
+
 ```typescript
 constructor(private readonly logger: AppLogger) {}
 ```
@@ -30,12 +36,12 @@ childLogger.logEvent('department.created', { attributes: { departmentId } });
 
 ## Log Levels
 
-| Level | When to use |
-|-------|------------|
-| `debug` | Detailed dev-only info (query params, internal state) |
-| `info` | Normal operations (request lifecycle, background jobs) |
-| `warn` | Expected but notable conditions (deprecated usage, fallback taken) |
-| `error` | Unexpected errors, failed operations |
+| Level   | When to use                                                        |
+| ------- | ------------------------------------------------------------------ |
+| `debug` | Detailed dev-only info (query params, internal state)              |
+| `info`  | Normal operations (request lifecycle, background jobs)             |
+| `warn`  | Expected but notable conditions (deprecated usage, fallback taken) |
+| `error` | Unexpected errors, failed operations                               |
 
 Set via `LOG_LEVEL` env var. Production should use `info` minimum.
 

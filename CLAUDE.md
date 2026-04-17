@@ -19,7 +19,7 @@ context, OpenTelemetry scaffolding (disabled by default).
 ```
 src/
 ├── app.module.ts                  # Root module; wires CLS, config, logger, DB, feature modules
-├── main.ts                        # Bootstrap + OTel SDK init + Swagger + fallback error handler
+├── main.ts                        # Bootstrap + Swagger + fallback error handler (OTel is preloaded via side-effect import before NestFactory)
 ├── bootstrap/                     # Graceful shutdown and process-level signal handlers
 ├── config/                        # Zod-validated env config; AppConfigService
 ├── common/
@@ -47,13 +47,13 @@ src/
 │   └── users/                     # UsersDbRepository + UsersDbService (findAuthContext for mock auth)
 ├── errors/                        # ErrorException + domain error codes (GEN/VAL/AUT/AUZ/DAT/SRV)
 ├── logger/                        # AppLogger (Pino), sanitizer, trace-context util
-├── telemetry/                     # OTel SDK, TelemetryService, @Trace/@InstrumentClass
+├── telemetry/                     # OTel SDK (traces + metrics + logs), TelemetryService, @Trace/@InstrumentClass; `otel-preload.ts` is the side-effect module imported first in main.ts
 └── modules/
     ├── departments/               # /api/v1/departments, /departments/tree
     └── tweets/                    # /api/v1/tweets, /api/v1/timeline
 
 prisma/
-└── seed.ts                        # 2 companies, 3-level dept tree, 7 users, sample tweets
+└── seed.ts                        # 3 companies, up-to-4-level dept trees, 16 users + visibility-matrix tweets (idempotent — no-ops if data exists)
 
 test/
 ├── helpers/                       # factories, mock-config, mock-prisma
@@ -72,21 +72,21 @@ test/
 
 ## Routing Table
 
-| Task                                                | Load these docs                                                                                                                        |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand the product requirements                 | `docs/prd/enterprise-twitter-prd.md`, `QUESTION.md`                                                                                    |
-| Understand the tenancy model                        | `docs/guides/FOR-Multi-Tenancy.md`, `README.md` § Multi-Tenant Approach                                                                |
-| Work on tweets or the timeline                      | `docs/guides/FOR-Tweets.md`, `docs/diagrams/tweets-sequence.md`                                                                        |
-| Work on departments or the hierarchy                | `docs/guides/FOR-Departments.md`, `docs/architecture/database-design.md`                                                               |
-| Change database schema                              | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md`                                               |
-| Work on the database layer (DbService/DbRepository) | `docs/guides/FOR-Database-Layer.md`, `docs/coding-guidelines/06-database-patterns.md`, `docs/architecture/service-architecture.md`     |
-| Add or fix error handling                           | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md`                                                     |
-| Work on mock auth, CLS, or tenant context           | `docs/architecture/mock-auth-flow.md`, `docs/guides/FOR-Multi-Tenancy.md`                                                              |
-| Work on logging or tracing                          | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md`                                                 |
-| Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                              |
-| Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                             |
-| Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                            |
-| Plan a new feature                                  | `docs/plans/template.md`                                                                                                               |
+| Task                                                | Load these docs                                                                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Understand the product requirements                 | `docs/prd/enterprise-twitter-prd.md`, `QUESTION.md`                                                                                |
+| Understand the tenancy model                        | `docs/guides/FOR-Multi-Tenancy.md`, `README.md` § Multi-Tenant Approach                                                            |
+| Work on tweets or the timeline                      | `docs/guides/FOR-Tweets.md`, `docs/diagrams/tweets-sequence.md`                                                                    |
+| Work on departments or the hierarchy                | `docs/guides/FOR-Departments.md`, `docs/architecture/database-design.md`                                                           |
+| Change database schema                              | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md`                                           |
+| Work on the database layer (DbService/DbRepository) | `docs/guides/FOR-Database-Layer.md`, `docs/coding-guidelines/06-database-patterns.md`, `docs/architecture/service-architecture.md` |
+| Add or fix error handling                           | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md`                                                 |
+| Work on mock auth, CLS, or tenant context           | `docs/architecture/mock-auth-flow.md`, `docs/guides/FOR-Multi-Tenancy.md`                                                          |
+| Work on logging or tracing                          | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md`                                             |
+| Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                          |
+| Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                         |
+| Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                        |
+| Plan a new feature                                  | `docs/plans/template.md`                                                                                                           |
 
 ---
 
@@ -120,6 +120,7 @@ Errors are represented as `ErrorException` instances (extends `Error`, NOT `Http
 Domain error constants (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`) are the API — no string keys or factory class.
 
 **Creating errors:**
+
 ```typescript
 import { AUT, AUZ, DAT, VAL } from '@errors/error-codes';
 import { ErrorException } from '@errors/types/error-exception';
@@ -132,12 +133,13 @@ throw new ErrorException(AUZ.CROSS_TENANT_ACCESS);
 
 // Static helpers for common patterns
 throw ErrorException.notFound('Company', id);
-throw ErrorException.validation(zodError);       // converts Zod issues
-throw ErrorException.validationFromCV(cvErrors);  // converts class-validator
+throw ErrorException.validation(zodError); // converts Zod issues
+throw ErrorException.validationFromCV(cvErrors); // converts class-validator
 throw ErrorException.internal(cause);
 ```
 
 **Catching errors:**
+
 ```typescript
 if (ErrorException.isErrorException(err)) {
   return err.toResponse(); // safe; masks non-userFacing messages
@@ -152,13 +154,13 @@ There is no separate `isOperational` flag.
 
 **Module-specific error codes** (recent additions):
 
-| Code       | Definition                      | Notes |
-|------------|---------------------------------|-------|
-| `VAL0007`  | `VAL.DEPARTMENT_IDS_REQUIRED`   | Raised when visibility ≠ COMPANY but departmentIds is empty |
-| `VAL0008`  | `VAL.DEPARTMENT_NOT_IN_COMPANY` | Raised when one or more referenced departmentIds are outside the caller's tenant |
-| `DAT0009`  | `DAT.DEPARTMENT_NOT_FOUND`      | Parent department not found in this company |
-| `DAT0010`  | `DAT.COMPANY_NOT_FOUND`         | Company not found (defensive — guard normally catches) |
-| `AUZ0004`  | `AUZ.CROSS_TENANT_ACCESS`       | Raised by the tenant-scope extension on cross-tenant writes |
+| Code      | Definition                      | Notes                                                                            |
+| --------- | ------------------------------- | -------------------------------------------------------------------------------- |
+| `VAL0007` | `VAL.DEPARTMENT_IDS_REQUIRED`   | Raised when visibility ≠ COMPANY but departmentIds is empty                      |
+| `VAL0008` | `VAL.DEPARTMENT_NOT_IN_COMPANY` | Raised when one or more referenced departmentIds are outside the caller's tenant |
+| `DAT0009` | `DAT.DEPARTMENT_NOT_FOUND`      | Parent department not found in this company                                      |
+| `DAT0010` | `DAT.COMPANY_NOT_FOUND`         | Company not found (defensive — guard normally catches)                           |
+| `AUZ0004` | `AUZ.CROSS_TENANT_ACCESS`       | Raised by the tenant-scope extension on cross-tenant writes                      |
 
 ---
 
@@ -179,10 +181,10 @@ Routes use **NestJS URI versioning**: `/api/v{version}/path`.
 
 Available composite + helper decorators:
 
-| Decorator              | File                                              | Purpose |
-|------------------------|---------------------------------------------------|---------|
-| `@ApiEndpoint(opts)`   | `src/common/decorators/api-endpoint.decorator.ts` | `@ApiOperation` + `@ApiResponse` + `@HttpCode` combined |
-| `@Public()`            | `src/common/decorators/public.decorator.ts`       | Skip `AuthContextGuard` on a route |
+| Decorator              | File                                              | Purpose                                                                    |
+| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------- |
+| `@ApiEndpoint(opts)`   | `src/common/decorators/api-endpoint.decorator.ts` | `@ApiOperation` + `@ApiResponse` + `@HttpCode` combined                    |
+| `@Public()`            | `src/common/decorators/public.decorator.ts`       | Skip `AuthContextGuard` on a route                                         |
 | `@CurrentUser(field?)` | `src/common/decorators/current-user.decorator.ts` | Extract `req.user` (populated by `MockAuthMiddleware`) or a specific field |
 
 > Note: `@ApiAuth()` and `@Roles()` were removed when the JWT/API-key stack was
@@ -195,13 +197,14 @@ Available composite + helper decorators:
 
 `AppLogger` provides three distinct methods with fixed semantics:
 
-| Method                         | Level                       | Use case |
-|--------------------------------|-----------------------------|----------|
+| Method                         | Level                       | Use case                                           |
+| ------------------------------ | --------------------------- | -------------------------------------------------- |
 | `logEvent(name, opts?)`        | Always INFO                 | Named structured events (lifecycle, domain events) |
-| `logError(name, error, opts?)` | Always ERROR                | Caught errors with OTel span recording |
-| `log(message, opts?)`          | Configurable (default INFO) | Escape hatch for non-INFO/non-ERROR levels |
+| `logError(name, error, opts?)` | Always ERROR                | Caught errors with OTel span recording             |
+| `log(message, opts?)`          | Configurable (default INFO) | Escape hatch for non-INFO/non-ERROR levels         |
 
 **Do not pass `level:` to `logEvent()` or `logError()`.** If you need WARN or FATAL, use `log()`:
+
 ```typescript
 // Correct
 logger.logEvent('tweet.created', { attributes: { tweetId, companyId } });

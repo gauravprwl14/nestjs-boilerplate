@@ -1,50 +1,124 @@
 # 09 — Development Workflow
 
-## Initial Setup
+## Running the app — pick one path
+
+> The project uses **Podman** in local dev (`podman compose`). All commands
+> below work identically with `docker compose` — they share the Compose spec.
+> Substitute whichever tool you have installed.
+
+### Path A — Everything in containers (recommended first-time)
+
+Zero host deps beyond a container runtime. Starts app + Postgres + the
+observability stack, **auto-runs migrations**, **auto-seeds** (idempotent).
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/gauravprwl14/nestjs-boilerplate.git
 cd nestjs-boilerplate
+podman compose up -d
+```
 
-# 2. Install dependencies
+- App: <http://localhost:3000> · Swagger at `/docs`
+- Grafana: <http://localhost:3001> (anonymous admin)
+- Postgres: mapped to host port `5433` (container port `5432`)
+
+The `app` service's command is:
+
+```bash
+prisma migrate deploy && npm run prisma:seed && npm run start:dev
+```
+
+Source is bind-mounted (`.:/app`), so hot reload works without rebuilding.
+
+```bash
+podman compose logs -f app            # stream app logs
+podman compose down                   # stop (keeps postgres volume)
+podman compose down -v                # stop + wipe all data
+```
+
+### Path B — App on host, infra in containers (fastest dev loop)
+
+You get IDE/debugger/host-`node_modules`, no need to install Postgres locally.
+
+```bash
+# 1. Start just the DB (add the observability chain if you want it)
+podman compose up -d postgres
+# Optional:
+podman compose up -d otel-collector tempo loki prometheus grafana
+
+# 2. Point DATABASE_URL at the host-mapped port (5433).
+#    .env.development is pre-configured for container DNS (host: postgres).
+#    For host-run, override via .env.local or a shell export:
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/enterprise_twitter_dev?schema=public"
+
+# 3. Install + run (migrate + seed + start:dev in one go)
 npm install
+npm run start:dev:seeded
+```
 
-# 3. Copy and configure environment
-cp .env.example .env.development
-# Edit .env.development with your local values
+### Path C — Everything on host
 
-# 4. Start infrastructure (PostgreSQL only; Grafana stack is optional)
-docker compose up -d postgres
-# Optional: docker compose up -d otel-collector tempo loki prometheus grafana
+Needs a local **Postgres 16** with an empty `enterprise_twitter_dev` database.
 
-# 5. Run database migrations
-npm run prisma:migrate:dev
+```bash
+# 1. Set DATABASE_URL for your local Postgres (port 5432 by default)
+export DATABASE_URL="postgresql://<user>:<pwd>@localhost:5432/enterprise_twitter_dev?schema=public"
 
-# 6. Generate Prisma client
-npm run prisma:generate
+# 2. Install + run
+npm install
+npm run start:dev:seeded
+```
 
-# 7. Seed (2 companies, 7 users, department trees, sample tweets)
-npm run prisma:seed
-# Note the printed user UUIDs — you'll need them for x-user-id.
+---
 
-# 8. Start the app in development mode
-npm run start:dev
+## Starting individual Compose services
+
+`podman compose up -d <service>` starts a service plus its `depends_on` chain.
+
+| Goal                               | Command                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| Just the DB                        | `podman compose up -d postgres`                                              |
+| DB + observability (no app)        | `podman compose up -d postgres otel-collector tempo loki prometheus grafana` |
+| Only the observability UIs         | `podman compose up -d prometheus tempo loki grafana`                         |
+| Stop one service                   | `podman compose stop <service>`                                              |
+| Restart one service (re-reads env) | `podman compose up -d --force-recreate --no-deps <service>`                  |
+| Shell into a running service       | `podman compose exec <service> sh`                                           |
+
+> **Note:** `app.depends_on.otel-collector` pulls tempo + loki along whenever
+> `app` starts. For a truly minimal boot (app + postgres only), comment that
+> dep out in `docker-compose.yml`.
+
+---
+
+## Manual seed / re-seed
+
+The seed is idempotent — `npm run prisma:seed` no-ops if data already exists.
+To force a fresh seed, truncate first:
+
+```bash
+# In the compose stack
+podman compose exec postgres psql -U postgres -d enterprise_twitter_dev \
+  -c 'TRUNCATE company, department, "user", user_department, tweet, tweet_department CASCADE'
+podman compose restart app            # compose auto-re-seeds on app boot
+# or:
+npm run prisma:seed                   # if running on host
 ```
 
 ## Environment Files
 
-| File | Purpose |
-|------|---------|
-| `.env.development` | Local development values |
-| `.env.test` | Test runner values (in-memory or test DB) |
-| `.env.production` | Production values (never commit — use secrets manager) |
+| File               | Loaded by                                                   | Purpose                                                                                                                          |
+| ------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.env`             | `docker compose` (for `${VAR}` interpolation)               | Compose-only: Postgres creds + observability URLs (e.g. `TEMPO_URL`). Not read by the app.                                       |
+| `.env.development` | The app (via `env_file:` in compose, or host start scripts) | App config for local dev — `DATABASE_URL`, `OTEL_*`, etc. Defaults to **container DNS** (`postgres`/`otel-collector` hostnames). |
+| `.env.test`        | Jest                                                        | Test DB values                                                                                                                   |
+| `.env.production`  | The app in prod                                             | Never committed — use a secrets manager                                                                                          |
+| `.env.local`       | Loaded after `.env.development` if present; git-ignored     | Per-developer overrides (e.g. host `DATABASE_URL` for Path B)                                                                    |
 
 ## Common Commands
 
 ```bash
 # Development
 npm run start:dev          # Watch mode with hot reload
+npm run start:dev:seeded   # prisma migrate:deploy + prisma:seed + start:dev
 npm run start:debug        # Debug mode (inspector on port 9229)
 
 # Database
@@ -91,31 +165,12 @@ git commit -m "docs: update tweets-sequence diagram"
 
 ## Commit Types
 
-| Type | When |
-|------|------|
-| `feat` | New feature or endpoint |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
+| Type       | When                               |
+| ---------- | ---------------------------------- |
+| `feat`     | New feature or endpoint            |
+| `fix`      | Bug fix                            |
+| `docs`     | Documentation only                 |
 | `refactor` | Code change without feature or fix |
-| `test` | Adding or fixing tests |
-| `chore` | Build, tooling, dependency updates |
-| `perf` | Performance improvement |
-
-## Running the Full Stack
-
-```bash
-# Start Postgres
-docker compose up -d postgres
-
-# (Optional) add the observability stack
-docker compose up -d otel-collector tempo loki prometheus grafana
-
-# View logs
-docker compose logs -f app
-
-# Swagger UI (mock auth: set x-user-id header via Swagger's "Authorize" button)
-open http://localhost:3000/docs
-
-# Grafana UI (only when OTel stack is running)
-open http://localhost:3001
-```
+| `test`     | Adding or fixing tests             |
+| `chore`    | Build, tooling, dependency updates |
+| `perf`     | Performance improvement            |

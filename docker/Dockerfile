@@ -8,21 +8,24 @@ WORKDIR /app
 # ─── Stage 2: dependencies ───────────────────────────────────────────────────
 FROM base AS dependencies
 
-# Copy package manifests and prisma schema (needed for prisma generate)
+# Copy package manifests and prisma schema (needed for prisma generate).
+# Schema lives at src/database/prisma/schema.prisma per package.json "prisma.schema".
 COPY package*.json ./
 COPY prisma/ ./prisma/
+COPY src/database/prisma/ ./src/database/prisma/
 
-# Install production dependencies
-RUN npm ci --only=production
+# Install production dependencies (npm install tolerates minor lockfile drift that npm 10 flags;
+# skip husky prepare script — no .git in this layer)
+RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
 
 # Generate Prisma client (needs a DATABASE_URL — dummy value is fine at build time)
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
-RUN npx prisma generate
+RUN npx prisma generate --schema=src/database/prisma/schema.prisma
 
 # Save production node_modules aside, then install all deps (including devDeps)
 RUN cp -r node_modules prod_node_modules
 
-RUN npm ci
+RUN npm install --ignore-scripts --no-audit --no-fund
 
 # ─── Stage 3: development ────────────────────────────────────────────────────
 FROM base AS development
@@ -35,7 +38,7 @@ COPY . .
 
 # Re-run prisma generate with real schema in place
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
-RUN npx prisma generate
+RUN npx prisma generate --schema=src/database/prisma/schema.prisma
 
 EXPOSE 3000
 
@@ -52,7 +55,7 @@ COPY . .
 
 # Re-run prisma generate with real schema in place
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
-RUN npx prisma generate
+RUN npx prisma generate --schema=src/database/prisma/schema.prisma
 
 # Compile TypeScript
 RUN npm run build

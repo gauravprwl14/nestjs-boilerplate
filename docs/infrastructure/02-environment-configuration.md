@@ -7,42 +7,42 @@ The app will refuse to start if any required variable is missing or invalid.
 
 ### Application
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NODE_ENV` | No | `development` | `development`, `test`, or `production` |
-| `APP_NAME` | No | `enterprise-twitter` | Service name used in logs and traces |
-| `APP_PORT` | No | `3000` | HTTP listen port |
-| `APP_HOST` | No | `0.0.0.0` | HTTP listen host |
-| `API_PREFIX` | No | `api` | URL prefix for all routes |
-| `API_VERSION` | No | `1` | URL version segment (no `v` prefix — NestJS adds it) |
-| `LOG_LEVEL` | No | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
+| Variable      | Required | Default              | Description                                                  |
+| ------------- | -------- | -------------------- | ------------------------------------------------------------ |
+| `NODE_ENV`    | No       | `development`        | `development`, `test`, or `production`                       |
+| `APP_NAME`    | No       | `enterprise-twitter` | Service name used in logs and traces                         |
+| `APP_PORT`    | No       | `3000`               | HTTP listen port                                             |
+| `APP_HOST`    | No       | `0.0.0.0`            | HTTP listen host                                             |
+| `API_PREFIX`  | No       | `api`                | URL prefix for all routes                                    |
+| `API_VERSION` | No       | `1`                  | URL version segment (no `v` prefix — NestJS adds it)         |
+| `LOG_LEVEL`   | No       | `info`               | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
 
 ### Database
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | **Yes** | — | PostgreSQL connection URL (`postgresql://user:pass@host:port/db`) |
+| Variable       | Required | Default | Description                                                       |
+| -------------- | -------- | ------- | ----------------------------------------------------------------- |
+| `DATABASE_URL` | **Yes**  | —       | PostgreSQL connection URL (`postgresql://user:pass@host:port/db`) |
 
 ### OpenTelemetry
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OTEL_ENABLED` | No | `false` | `true` to enable OTel SDK |
-| `OTEL_SERVICE_NAME` | No | `enterprise-twitter` | Trace service name |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Conditional | — | Required when `OTEL_ENABLED=true` (e.g. `http://otel-collector:4317`) |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | No | `grpc` | `grpc`, `http`, or `http/protobuf` |
+| Variable                      | Required    | Default              | Description                                                           |
+| ----------------------------- | ----------- | -------------------- | --------------------------------------------------------------------- |
+| `OTEL_ENABLED`                | No          | `false`              | `true` to enable OTel SDK                                             |
+| `OTEL_SERVICE_NAME`           | No          | `enterprise-twitter` | Trace service name                                                    |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Conditional | —                    | Required when `OTEL_ENABLED=true` (e.g. `http://otel-collector:4317`) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | No          | `grpc`               | `grpc`, `http`, or `http/protobuf`                                    |
 
 ### CORS
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CORS_ORIGINS` | No | `*` | Comma-separated allowed origins or `*` |
+| Variable       | Required | Default | Description                            |
+| -------------- | -------- | ------- | -------------------------------------- |
+| `CORS_ORIGINS` | No       | `*`     | Comma-separated allowed origins or `*` |
 
 ### Shutdown
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SHUTDOWN_TIMEOUT_MS` | No | `10000` | Graceful shutdown timeout in milliseconds |
+| Variable              | Required | Default | Description                               |
+| --------------------- | -------- | ------- | ----------------------------------------- |
+| `SHUTDOWN_TIMEOUT_MS` | No       | `10000` | Graceful shutdown timeout in milliseconds |
 
 ## Removed variables (post-pivot)
 
@@ -59,17 +59,33 @@ deleted.
 
 ## Example .env.development
 
+The shipped `.env.development` is Docker-compose-first (service DNS names), so it works out of the box with `docker compose up`:
+
 ```bash
 NODE_ENV=development
 APP_PORT=3000
 LOG_LEVEL=debug
 
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_twitter_dev
+# Docker DNS — postgres service on the internal network
+DATABASE_URL=postgresql://postgres:postgres@postgres:5432/enterprise_twitter_dev
 
 OTEL_ENABLED=false
-OTEL_SERVICE_NAME=enterprise-twitter-dev
-# OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_SERVICE_NAME=enterprise-twitter
+# Docker DNS — collector service on the internal network
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
+
+When running the app **outside** Docker, swap the service names for `localhost` and use the host-mapped port (`5433` for Postgres, `4317` for the OTel collector).
+
+## Docker Compose overrides
+
+`docker-compose.yml` exposes a handful of compose-level env vars (distinct from
+the app's Zod schema) so you can reroute infrastructure without editing YAML.
+See `01-docker-setup.md` § _Overridable compose variables_ for the full
+table: `POSTGRES_USER/PASSWORD/DB`, `TEMPO_OTLP_GRPC_ENDPOINT`,
+`LOKI_OTLP_ENDPOINT`, `PROMETHEUS_REMOTE_WRITE_URL`, `PROMETHEUS_URL`,
+`TEMPO_URL`, `LOKI_URL`. All have defaults that match the in-compose service
+DNS, so supplying them is only necessary when pointing at external services.
 
 ## Production Security Notes
 

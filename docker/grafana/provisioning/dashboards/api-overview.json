@@ -32,8 +32,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(http_server_request_duration_milliseconds_count[1m])) by (http_route)",
-          "legendFormat": "{{http_route}}",
+          "expr": "sum(rate(http_server_duration_milliseconds_count[1m])) by (http_target)",
+          "legendFormat": "{{http_target}}",
           "refId": "A"
         }
       ],
@@ -56,17 +56,17 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_milliseconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_duration_milliseconds_bucket[1m])) by (le))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_milliseconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket[1m])) by (le))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_milliseconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_duration_milliseconds_bucket[1m])) by (le))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -90,13 +90,13 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(http_server_request_duration_milliseconds_count{http_response_status_code=~\"5..\"}[1m])) by (http_route)",
-          "legendFormat": "5xx {{http_route}}",
+          "expr": "sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"5..\"}[1m])) by (http_target)",
+          "legendFormat": "5xx {{http_target}}",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(http_server_request_duration_milliseconds_count{http_response_status_code=~\"4..\"}[1m])) by (http_route)",
-          "legendFormat": "4xx {{http_route}}",
+          "expr": "sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"4..\"}[1m])) by (http_target)",
+          "legendFormat": "4xx {{http_target}}",
           "refId": "B"
         }
       ],
@@ -119,7 +119,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(increase(http_server_request_duration_milliseconds_count[5m]))",
+          "expr": "sum(increase(http_server_duration_milliseconds_count[5m]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -147,7 +147,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "100 * sum(increase(http_server_request_duration_milliseconds_count{http_response_status_code=~\"5..\"}[5m])) / sum(increase(http_server_request_duration_milliseconds_count[5m]))",
+          "expr": "100 * sum(increase(http_server_duration_milliseconds_count{http_status_code=~\"5..\"}[5m])) / sum(increase(http_server_duration_milliseconds_count[5m]))",
           "legendFormat": "",
           "refId": "A"
         }
