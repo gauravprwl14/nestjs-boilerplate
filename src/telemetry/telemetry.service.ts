@@ -1,12 +1,5 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import {
-  trace,
-  metrics,
-  context,
-  SpanStatusCode,
-  SpanKind,
-  SpanOptions,
-} from '@opentelemetry/api';
+import { trace, metrics, SpanStatusCode, SpanKind, SpanOptions } from '@opentelemetry/api';
 import { TraceOptions, CounterOptions, DurationOptions } from './interfaces/telemetry.interfaces';
 import {
   TRACER_NAME,
@@ -50,7 +43,7 @@ export class TelemetryService implements OnModuleDestroy {
       attributes: options?.attributes,
     };
 
-    return this.tracer.startActiveSpan(spanName, spanOptions, async (span) => {
+    return this.tracer.startActiveSpan(spanName, spanOptions, async span => {
       try {
         const result = await Promise.resolve(fn());
         span.setStatus({ code: SpanStatusCode.OK });
