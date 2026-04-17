@@ -19,12 +19,6 @@ export interface TraceOptions {
    * Static key-value attributes to attach to the span at creation time.
    */
   attributes?: Record<string, string | number | boolean>;
-
-  /**
-   * When true, the span is recorded but not exported (useful for tests).
-   * @default false
-   */
-  root?: boolean;
 }
 
 /**

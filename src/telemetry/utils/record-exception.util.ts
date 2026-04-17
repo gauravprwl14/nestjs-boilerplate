@@ -13,9 +13,37 @@ export interface RecordExceptionOptions {
   readonly setStatus?: boolean;
   /**
    * Optional scrubber applied to every string value (message, stacktrace)
-   * before it is attached to an event. Use this to redact PII.
+   * before it is attached to an event. Use this to redact PII. When omitted,
+   * falls back to the module-level default registered via
+   * {@link setDefaultRedactString} (if any), else an identity function.
    */
   readonly redactString?: (s: string) => string;
+}
+
+// ─── Module-level default redactor hook ──────────────────────────────────────
+//
+// Decorators (e.g. `@Trace`) cannot inject a `RedactorService` because they
+// execute outside the NestJS DI container. To still benefit from PII redaction
+// on child-span exception events, a process-level default can be registered at
+// application bootstrap — the `AllExceptionsFilter` also retains its DI-bound
+// `redactString` override for HTTP-boundary redaction.
+let defaultRedactString: ((s: string) => string) | undefined;
+
+/**
+ * Register a process-wide default `redactString` used by
+ * {@link recordExceptionOnSpan} when a per-call `redactString` is not
+ * supplied. Pass `undefined` to clear the hook.
+ *
+ * Intended to be wired once at application bootstrap, e.g.:
+ *
+ * @example
+ * ```ts
+ * // In AppModule.onApplicationBootstrap (future WP)
+ * setDefaultRedactString(this.redactor.redactString.bind(this.redactor));
+ * ```
+ */
+export function setDefaultRedactString(fn?: (s: string) => string): void {
+  defaultRedactString = fn;
 }
 
 /**
@@ -46,7 +74,7 @@ export function recordExceptionOnSpan(err: unknown, opts: RecordExceptionOptions
   const frames = serialiseErrorChain(err);
   if (frames.length === 0) return;
 
-  const scrub = opts.redactString ?? identity;
+  const scrub = opts.redactString ?? defaultRedactString ?? identity;
 
   frames.forEach((frame, i) => {
     span.addEvent(i === 0 ? 'exception' : `exception.cause.${i}`, {

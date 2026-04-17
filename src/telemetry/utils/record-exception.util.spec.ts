@@ -10,7 +10,7 @@ import {
 import { DAT } from '@errors/error-codes/database.errors';
 import { ErrorException } from '@errors/types/error-exception';
 
-import { recordExceptionOnSpan } from './record-exception.util';
+import { recordExceptionOnSpan, setDefaultRedactString } from './record-exception.util';
 
 // ─── Test fixture ─────────────────────────────────────────────────────────
 const contextManager = new AsyncLocalStorageContextManager();
@@ -166,6 +166,51 @@ describe('recordExceptionOnSpan', () => {
     it('no-ops when no active span and no span passed', () => {
       // Act + Assert — should not throw even without active span context
       expect(() => recordExceptionOnSpan(new Error('nope'))).not.toThrow();
+    });
+  });
+
+  describe('default redactString hook', () => {
+    afterEach(() => setDefaultRedactString(undefined));
+
+    it('falls back to the module-level default when opts.redactString is absent', () => {
+      // Arrange
+      setDefaultRedactString(s => s.replace('a@x.com', '[DEFAULT]'));
+      const err = new Error('user a@x.com failed');
+
+      // Act
+      const span = runInSpan(() => recordExceptionOnSpan(err));
+
+      // Assert
+      expect(span.events[0].attributes?.['exception.message']).toBe('user [DEFAULT] failed');
+    });
+
+    it('lets per-call redactString override the default', () => {
+      // Arrange — default scrubber would produce [DEFAULT] but per-call wins
+      setDefaultRedactString(s => s.replace('a@x.com', '[DEFAULT]'));
+      const err = new Error('user a@x.com failed');
+
+      // Act
+      const span = runInSpan(() =>
+        recordExceptionOnSpan(err, {
+          redactString: s => s.replace('a@x.com', '[PER-CALL]'),
+        }),
+      );
+
+      // Assert
+      expect(span.events[0].attributes?.['exception.message']).toBe('user [PER-CALL] failed');
+    });
+
+    it('clears the default when setDefaultRedactString(undefined) is called', () => {
+      // Arrange — set then clear
+      setDefaultRedactString(s => s.replace('a@x.com', '[DEFAULT]'));
+      setDefaultRedactString(undefined);
+      const err = new Error('user a@x.com failed');
+
+      // Act
+      const span = runInSpan(() => recordExceptionOnSpan(err));
+
+      // Assert — raw message preserved
+      expect(span.events[0].attributes?.['exception.message']).toBe('user a@x.com failed');
     });
   });
 
