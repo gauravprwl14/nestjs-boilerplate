@@ -55,20 +55,20 @@ src/modules/auth/
 
 ### AuthService
 
-| Method | Description |
-|--------|-------------|
-| `register(dto)` | Hash password, create User + RefreshToken, sign token pair |
-| `login(dto)` | Find user by email, bcrypt compare, check status, issue tokens |
-| `refreshTokens(token)` | Verify refresh JWT, revoke old token, issue new pair |
-| `changePassword(userId, dto)` | Bcrypt compare current, hash new, revoke all refresh tokens |
+| Method                        | Description                                                    |
+| ----------------------------- | -------------------------------------------------------------- |
+| `register(dto)`               | Hash password, create User + RefreshToken, sign token pair     |
+| `login(dto)`                  | Find user by email, bcrypt compare, check status, issue tokens |
+| `refreshTokens(token)`        | Verify refresh JWT, revoke old token, issue new pair           |
+| `changePassword(userId, dto)` | Bcrypt compare current, hash new, revoke all refresh tokens    |
 
 ### ApiKeysService
 
-| Method | Description |
-|--------|-------------|
-| `create(userId, dto)` | Generate random key, store hash + prefix, return raw key once |
-| `findAll(userId)` | List all ACTIVE keys (hash not returned) |
-| `revoke(userId, keyId)` | Set `status = REVOKED` — key is immediately invalid |
+| Method                  | Description                                                   |
+| ----------------------- | ------------------------------------------------------------- |
+| `create(userId, dto)`   | Generate random key, store hash + prefix, return raw key once |
+| `findAll(userId)`       | List all ACTIVE keys (hash not returned)                      |
+| `revoke(userId, keyId)` | Set `status = REVOKED` — key is immediately invalid           |
 
 ### JwtAuthGuard Logic
 
@@ -85,30 +85,51 @@ canActivate(context) {
 
 ---
 
-## 5. Error Cases
+## 5. Transactional Register
 
-| Scenario | Error Code | HTTP Status |
-|----------|-----------|-------------|
-| Email already registered | `DAT0003` | 409 |
-| Wrong email or password | `AUT0006` | 401 |
-| Account suspended | `AUT0004` | 403 |
-| Account locked | `AUT0005` | 423 |
-| Access token expired | `AUT0002` | 401 |
-| Refresh token invalid/revoked | `AUT0003` | 401 |
-| API key invalid | `AUT0003` | 401 |
-| API key not found | `DAT0001` | 404 |
+`AuthService.register()` wraps the user-creation + token-issuance sequence in a single database transaction via `DatabaseService.runInTransaction()`. This guarantees atomicity: if the refresh-token insert fails for any reason the user row is rolled back automatically, leaving no orphan records.
+
+```typescript
+const { user, tokens } = await this.databaseService.runInTransaction(async tx => {
+  const createdUser = await this.usersDb.create(
+    { email, passwordHash, firstName, lastName, status: UserStatus.ACTIVE },
+    tx,
+  );
+  const generated = await this.generateTokens(createdUser, tx); // issues refresh token inside tx
+  return { user: createdUser, tokens: generated };
+});
+```
+
+The rollback behaviour is verified by an e2e test at
+`test/e2e/auth-register-rollback.e2e-spec.ts`, which injects a fault after the user
+row is created and asserts that no user record persists in the database.
 
 ---
 
-## 6. Configuration
+## 6. Error Cases
 
-| Variable | Purpose |
-|----------|---------|
-| `JWT_ACCESS_SECRET` | Signs access tokens — must be ≥ 32 chars |
-| `JWT_ACCESS_EXPIRATION` | Access token TTL (default `15m`) |
-| `JWT_REFRESH_SECRET` | Signs refresh tokens — must be ≥ 32 chars |
-| `JWT_REFRESH_EXPIRATION` | Refresh token TTL (default `7d`) |
-| `API_KEY_ENCRYPTION_SECRET` | Used in API key hashing pipeline — ≥ 32 chars |
-| `BCRYPT_ROUNDS` | Password + API key hash cost factor (default `12`) |
+| Scenario                      | Error Code | HTTP Status |
+| ----------------------------- | ---------- | ----------- |
+| Email already registered      | `DAT0003`  | 409         |
+| Wrong email or password       | `AUT0006`  | 401         |
+| Account suspended             | `AUT0004`  | 403         |
+| Account locked                | `AUT0005`  | 423         |
+| Access token expired          | `AUT0002`  | 401         |
+| Refresh token invalid/revoked | `AUT0003`  | 401         |
+| API key invalid               | `AUT0003`  | 401         |
+| API key not found             | `DAT0001`  | 404         |
+
+---
+
+## 7. Configuration
+
+| Variable                    | Purpose                                            |
+| --------------------------- | -------------------------------------------------- |
+| `JWT_ACCESS_SECRET`         | Signs access tokens — must be ≥ 32 chars           |
+| `JWT_ACCESS_EXPIRATION`     | Access token TTL (default `15m`)                   |
+| `JWT_REFRESH_SECRET`        | Signs refresh tokens — must be ≥ 32 chars          |
+| `JWT_REFRESH_EXPIRATION`    | Refresh token TTL (default `7d`)                   |
+| `API_KEY_ENCRYPTION_SECRET` | Used in API key hashing pipeline — ≥ 32 chars      |
+| `BCRYPT_ROUNDS`             | Password + API key hash cost factor (default `12`) |
 
 See `docs/infrastructure/02-environment-configuration.md` for the full env var reference.

@@ -110,11 +110,13 @@ Last updated: 2026-04-17
 - [x] Migrate users aggregate → `UsersDbRepository` + `UsersDbService`
 - [x] Migrate auth-credentials aggregate → `AuthCredentialsDbRepository` + `AuthCredentialsDbService`
 - [x] Migrate todo-lists aggregate → `TodoListsDbRepository` + `TodoListsDbService`
-- [ ] Migrate todo-items aggregate → `TodoItemsDbRepository` + `TodoItemsDbService`
-- [ ] Migrate tags aggregate
-- [ ] Wrap `AuthService.register` in `runInTransaction` + e2e rollback test
-- [ ] Cleanup + doc sync
+- [x] Migrate todo-items aggregate → `TodoItemsDbRepository` + `TodoItemsDbService` (owns `TodoItemTag` join table; `assignTag`/`removeTag` methods)
+- [x] Migrate tags aggregate → `TagsDbRepository` + `TagsDbService` (owns Tag catalog; join-table ownership stays with `TodoItemsDbService`)
+- [x] Wrap `AuthService.register` in `runInTransaction` + e2e rollback test (`test/e2e/auth-register-rollback.e2e-spec.ts`)
+- [x] Cleanup + doc sync (all 5 aggregates documented; `add-module` skill updated)
+
+All 20 unit-test suites (159 tests) pass. Feature code no longer writes Prisma calls directly — every module delegates to its aggregate `*DbService`.
 
 ## Current Focus
 
-Database layer refactor — migrating remaining aggregates (todo-items, tags) and adding transaction coverage.
+Database layer refactor — **complete**. Branch `database-layer-refactor` ready for review and merge.

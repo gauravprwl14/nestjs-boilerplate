@@ -49,9 +49,15 @@ src/database/
 ├── auth-credentials/
 │   ├── auth-credentials.db-repository.ts  # RefreshToken + ApiKey Prisma calls
 │   └── auth-credentials.db-service.ts     # Public DB API for auth credentials
-└── todo-lists/
-    ├── todo-lists.db-repository.ts      # TodoList-specific Prisma calls
-    └── todo-lists.db-service.ts         # Public DB API for TodoList aggregate
+├── todo-lists/
+│   ├── todo-lists.db-repository.ts      # TodoList-specific Prisma calls
+│   └── todo-lists.db-service.ts         # Public DB API for TodoList aggregate
+├── todo-items/
+│   ├── todo-items.db-repository.ts      # TodoItem + TodoItemTag Prisma calls
+│   └── todo-items.db-service.ts         # Public DB API for TodoItem aggregate (incl. tag assignment)
+└── tags/
+    ├── tags.db-repository.ts            # Tag-specific Prisma calls
+    └── tags.db-service.ts               # Public DB API for Tag catalog
 ```
 
 ---
@@ -118,6 +124,31 @@ src/database/
 | `findByIdForUser(userId, id, tx?)`            | Find list; null if not owned / deleted |
 | `updateById(id, patch, tx?)`                  | Patch title/description                |
 | `softDeleteById(id, tx?)`                     | Set `deletedAt = now()`                |
+
+### TodoItemsDbService
+
+Owns the `TodoItem` model and the `TodoItemTag` join table. Tag catalog operations belong to `TagsDbService`; the join-table entries belong here.
+
+| Method                                           | Description                                          |
+| ------------------------------------------------ | ---------------------------------------------------- |
+| `createInList(listId, input, tx?)`               | Create a new item inside the given list              |
+| `findByListId(listId, filters, pagination, tx?)` | Paginated, filtered items for a list                 |
+| `findByIdForUser(userId, id, tx?)`               | Find item scoped to owning user; null if not found   |
+| `updateById(id, patch, tx?)`                     | Patch any item field (title, status, priority, etc.) |
+| `softDeleteById(id, tx?)`                        | Set `deletedAt = now()`                              |
+| `assignTag(itemId, tagId, tx?)`                  | Upsert a `TodoItemTag` row (idempotent)              |
+| `removeTag(itemId, tagId, tx?)`                  | Delete the `TodoItemTag` row                         |
+
+### TagsDbService
+
+Owns the Tag catalog. It does **not** own the `TodoItemTag` join table — that responsibility belongs to `TodoItemsDbService`.
+
+| Method                  | Description                          |
+| ----------------------- | ------------------------------------ |
+| `findByName(name, tx?)` | Find a tag by its unique name        |
+| `findById(id, tx?)`     | Find a tag by UUID                   |
+| `findAll(tx?)`          | Return every tag                     |
+| `create(input, tx?)`    | Create a tag (name + optional color) |
 
 ---
 
