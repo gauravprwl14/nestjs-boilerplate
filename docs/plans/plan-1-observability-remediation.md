@@ -6,7 +6,7 @@
 
 **Goal:** Make the application's traces end-to-end visible with full cause chains, safe-by-default PII redaction on both logs and span attributes/events, and a single source of truth for PII paths.
 **Branch:** `feat/observability-remediation`
-**Status:** Draft
+**Status:** In Progress — WP-12 pending (docs commit).
 
 ---
 
@@ -142,7 +142,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `src/errors/utils/cause-chain.util.ts`
 - Create: `src/errors/utils/cause-chain.util.spec.ts`
 
-- [ ] **W1.1** Write failing test for single-error serialisation
+- [x] **W1.1** Write failing test for single-error serialisation
 
   ```ts
   // src/errors/utils/cause-chain.util.spec.ts
@@ -161,9 +161,9 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W1.2** Run: `npm test -- cause-chain.util.spec` → expect FAIL (module not found).
+- [x] **W1.2** Run: `npm test -- cause-chain.util.spec` → expect FAIL (module not found).
 
-- [ ] **W1.3** Implement minimal util
+- [x] **W1.3** Implement minimal util
 
   ```ts
   // src/errors/utils/cause-chain.util.ts
@@ -231,7 +231,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   type Writable<T> = { -readonly [K in keyof T]: T[K] };
   ```
 
-- [ ] **W1.4** Add edge-case tests (non-error cause, cycle, depth limit, Prisma duck-typing)
+- [x] **W1.4** Add edge-case tests (non-error cause, cycle, depth limit, Prisma duck-typing)
 
   ```ts
   it('walks Error.cause to the leaf', () => {
@@ -275,9 +275,9 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W1.5** Run all tests in that file → expect PASS.
+- [x] **W1.5** Run all tests in that file → expect PASS.
 
-- [ ] **W1.6** Commit
+- [x] **W1.6** Commit
 
   ```bash
   git add src/errors/utils/cause-chain.util.ts src/errors/utils/cause-chain.util.spec.ts
@@ -291,7 +291,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `src/telemetry/utils/record-exception.util.ts`
 - Create: `src/telemetry/utils/record-exception.util.spec.ts`
 
-- [ ] **W2.1** Write failing test that inspects emitted span events
+- [x] **W2.1** Write failing test that inspects emitted span events
 
   ```ts
   // src/telemetry/utils/record-exception.util.spec.ts
@@ -327,9 +327,9 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W2.2** Run → FAIL.
+- [x] **W2.2** Run → FAIL.
 
-- [ ] **W2.3** Implement
+- [x] **W2.3** Implement
 
   ```ts
   // src/telemetry/utils/record-exception.util.ts
@@ -399,7 +399,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W2.4** Add cause-chain-visibility test
+- [x] **W2.4** Add cause-chain-visibility test
 
   ```ts
   it('emits one event per frame of a nested cause chain', () => {
@@ -436,7 +436,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W2.5** Tests pass → commit
+- [x] **W2.5** Tests pass → commit
 
   ```bash
   git add src/telemetry/utils/
@@ -453,7 +453,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `src/common/redaction/pii-registry.spec.ts`
 - Create: `src/common/redaction/string-patterns.spec.ts`
 
-- [ ] **W3.1** Constants
+- [x] **W3.1** Constants
 
   ```ts
   // src/common/redaction/redaction.constants.ts
@@ -463,7 +463,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   export const REDACTION_MAX_STRING_LENGTH = 16_384;
   ```
 
-- [ ] **W3.2** Registry — typed single source of truth
+- [x] **W3.2** Registry — typed single source of truth
 
   ```ts
   // src/common/redaction/pii-registry.ts
@@ -580,7 +580,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   );
   ```
 
-- [ ] **W3.3** String patterns
+- [x] **W3.3** String patterns
 
   ```ts
   // src/common/redaction/string-patterns.ts
@@ -631,7 +631,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   ]);
   ```
 
-- [ ] **W3.4** Tests for registry and patterns
+- [x] **W3.4** Tests for registry and patterns
 
   ```ts
   // src/common/redaction/pii-registry.spec.ts
@@ -691,7 +691,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W3.5** Tests pass → commit
+- [x] **W3.5** Tests pass → commit
 
   ```bash
   git add src/common/redaction/
@@ -708,14 +708,14 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `src/common/redaction/allow-pii.util.ts`
 - Create: `src/common/redaction/allow-pii.util.spec.ts`
 
-- [ ] **W4.1** Install `fast-redact`
+- [x] **W4.1** Install `fast-redact`
 
   ```bash
   npm install fast-redact@^3.5.0
   npm install -D @types/fast-redact || true
   ```
 
-- [ ] **W4.2** Write failing tests first
+- [x] **W4.2** Write failing tests first
 
   ```ts
   // src/common/redaction/redactor.service.spec.ts
@@ -803,7 +803,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W4.3** Implement service
+- [x] **W4.3** Implement service
 
   ```ts
   // src/common/redaction/redactor.service.ts
@@ -918,7 +918,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W4.4** Allow-PII audit util
+- [x] **W4.4** Allow-PII audit util
 
   ```ts
   // src/common/redaction/allow-pii.util.ts
@@ -959,7 +959,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W4.5** Module
+- [x] **W4.5** Module
 
   ```ts
   // src/common/redaction/redaction.module.ts
@@ -974,7 +974,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   export class RedactionModule {}
   ```
 
-- [ ] **W4.6** Register in root
+- [x] **W4.6** Register in root
 
   ```ts
   // src/app.module.ts — add to imports array
@@ -982,7 +982,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   // ... imports: [AppConfigModule, AppLoggerModule, RedactionModule, ...]
   ```
 
-- [ ] **W4.7** All tests pass → commit
+- [x] **W4.7** All tests pass → commit
 
   ```bash
   git add src/common/redaction/ src/app.module.ts package.json package-lock.json
@@ -997,7 +997,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Modify: `src/errors/types/error-exception.ts`
 - Modify: `src/errors/types/error-exception.spec.ts` (or create)
 
-- [ ] **W5.1** Update Pino to use the registry and add the trace mixin
+- [x] **W5.1** Update Pino to use the registry and add the trace mixin
 
   ```ts
   // src/logger/logger.config.ts — inside pinoBaseOptions
@@ -1019,7 +1019,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   },
   ```
 
-- [ ] **W5.2** Append cause stack in `ErrorException` constructor so origin survives wrapping
+- [x] **W5.2** Append cause stack in `ErrorException` constructor so origin survives wrapping
 
   ```ts
   // src/errors/types/error-exception.ts — inside constructor, after Error.captureStackTrace
@@ -1029,7 +1029,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W5.3** Delegate `extractCauseChain` and `toLog()` to the new util
+- [x] **W5.3** Delegate `extractCauseChain` and `toLog()` to the new util
 
   ```ts
   // src/errors/types/error-exception.ts — replace existing extractCauseChain
@@ -1040,7 +1040,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W5.4** Tests
+- [x] **W5.4** Tests
 
   ```ts
   // src/errors/types/error-exception.spec.ts (create if missing)
@@ -1052,14 +1052,14 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W5.5** Verify the app still boots + tests green
+- [x] **W5.5** Verify the app still boots + tests green
 
   ```bash
   npm run test
   npm run type:check
   ```
 
-- [ ] **W5.6** Commit
+- [x] **W5.6** Commit
 
   ```bash
   git add src/logger/logger.config.ts src/errors/types/error-exception.ts src/errors/types/error-exception.spec.ts
@@ -1073,7 +1073,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Modify: `src/logger/logger.service.ts`
 - Modify: `src/logger/logger.service.spec.ts`
 
-- [ ] **W6.1** Wire `logEvent` to redact attributes then `span.addEvent`
+- [x] **W6.1** Wire `logEvent` to redact attributes then `span.addEvent`
 
   ```ts
   // src/logger/logger.service.ts — at top
@@ -1092,7 +1092,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   if (span) span.addEvent(name, attrs as Attributes | undefined);
   ```
 
-- [ ] **W6.2** Wire `logError` through `recordExceptionOnSpan`
+- [x] **W6.2** Wire `logError` through `recordExceptionOnSpan`
 
   ```ts
   // inside logError(name, error, opts)
@@ -1105,7 +1105,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   pinoLogger.error({ err: error, ...attrs }, name);
   ```
 
-- [ ] **W6.3** `warn` / `fatal` emit `addEvent` with severity attribute
+- [x] **W6.3** `warn` / `fatal` emit `addEvent` with severity attribute
 
   ```ts
   warn(message: unknown, ...optional: unknown[]) {
@@ -1117,7 +1117,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W6.4** Tests — happy path + redaction + cause chain
+- [x] **W6.4** Tests — happy path + redaction + cause chain
 
   ```ts
   // src/logger/logger.service.spec.ts — new test block
@@ -1145,7 +1145,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W6.5** Commit
+- [x] **W6.5** Commit
 
   ```bash
   git add src/logger/
@@ -1161,13 +1161,13 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Modify: `src/telemetry/otel-sdk.ts`
 - Modify: `src/main.ts` (verify SDK starts before NestFactory)
 
-- [ ] **W7.1** Install Prisma instrumentation
+- [x] **W7.1** Install Prisma instrumentation
 
   ```bash
   npm install @prisma/instrumentation@^7
   ```
 
-- [ ] **W7.2** Enable tracing preview in schema
+- [x] **W7.2** Enable tracing preview in schema
 
   ```prisma
   // src/database/prisma/schema.prisma
@@ -1181,7 +1181,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   npx prisma generate
   ```
 
-- [ ] **W7.3** Register in OTel SDK
+- [x] **W7.3** Register in OTel SDK
 
   ```ts
   // src/telemetry/otel-sdk.ts
@@ -1193,9 +1193,9 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   ],
   ```
 
-- [ ] **W7.4** Manual smoke: `npm run start:dev`, `curl /api/v1/health`, confirm Tempo shows one HTTP span plus `prisma:client:operation` spans when DB calls occur.
+- [x] **W7.4** Manual smoke: `npm run start:dev`, `curl /api/v1/health`, confirm Tempo shows one HTTP span plus `prisma:client:operation` spans when DB calls occur.
 
-- [ ] **W7.5** Commit
+- [x] **W7.5** Commit
 
   ```bash
   git add package.json package-lock.json src/database/prisma/schema.prisma src/telemetry/otel-sdk.ts
@@ -1212,7 +1212,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `src/telemetry/decorators/trace.decorator.spec.ts`
 - Create: `src/telemetry/decorators/instrument-class.decorator.spec.ts`
 
-- [ ] **W8.1** Fix `@InstrumentClass` prototype-chain walk (covers inherited methods on `BaseRepository`)
+- [x] **W8.1** Fix `@InstrumentClass` prototype-chain walk (covers inherited methods on `BaseRepository`)
 
   ```ts
   // src/telemetry/decorators/instrument-class.decorator.ts
@@ -1237,7 +1237,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W8.2** Remove the misleading `root` option from `@Trace` + update interface
+- [x] **W8.2** Remove the misleading `root` option from `@Trace` + update interface
 
   ```ts
   // src/telemetry/interfaces/telemetry.interfaces.ts — delete `root?: boolean` field
@@ -1247,7 +1247,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   // src/telemetry/decorators/trace.decorator.ts — remove `root` usage; use startActiveSpan
   ```
 
-- [ ] **W8.3** Wire `@Trace` to record via `recordExceptionOnSpan` on child span (status only; no cause-chain duplication on child)
+- [x] **W8.3** Wire `@Trace` to record via `recordExceptionOnSpan` on child span (status only; no cause-chain duplication on child)
 
   ```ts
   // inside catch block
@@ -1256,7 +1256,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   throw err;
   ```
 
-- [ ] **W8.4** Tests for both decorators
+- [x] **W8.4** Tests for both decorators
 
   ```ts
   // src/telemetry/decorators/instrument-class.decorator.spec.ts
@@ -1297,7 +1297,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W8.5** Commit
+- [x] **W8.5** Commit
 
   ```bash
   git add src/telemetry/decorators/ src/telemetry/interfaces/
@@ -1313,7 +1313,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Modify: `src/database/base.repository.ts`
 - Modify: `src/database/database.service.ts`
 
-- [ ] **W9.1** Services: add `@InstrumentClass()` above `@Injectable()` in all of:
+- [x] **W9.1** Services: add `@InstrumentClass()` above `@Injectable()` in all of:
   - `src/modules/auth/auth.service.ts`
   - `src/modules/auth/api-keys.service.ts`
   - `src/modules/users/users.service.ts`
@@ -1322,7 +1322,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   - `src/modules/tags/tags.service.ts`
   - `src/modules/health/health.service.ts` (if exists)
 
-- [ ] **W9.2** Database layer:
+- [x] **W9.2** Database layer:
   - `src/database/database.service.ts`
   - `src/database/base.repository.ts`
   - `src/database/auth-credentials/auth-credentials.(db-service|db-repository).ts`
@@ -1331,12 +1331,12 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   - `src/database/todo-items/todo-items.(db-service|db-repository).ts`
   - `src/database/tags/tags.(db-service|db-repository).ts`
 
-- [ ] **W9.3** Controllers: explicit `@Trace({ spanName: '<controller>.<action>' })` on each handler method. Don't use `@InstrumentClass` here — we want stable span names excluding lifecycle hooks.
+- [x] **W9.3** Controllers: explicit `@Trace({ spanName: '<controller>.<action>' })` on each handler method. Don't use `@InstrumentClass` here — we want stable span names excluding lifecycle hooks.
   - Example: `src/modules/todo-lists/todo-lists.controller.ts` — add `@Trace({ spanName: 'todoLists.create' })` on `create`, `todoLists.findAll` on `findAll`, etc.
 
-- [ ] **W9.4** Verify end-to-end with an integration-ish smoke test using `InMemorySpanExporter` (see WP-11). At this stage `npm run test` should still be green — decorators are idempotent-safe if the SDK isn't running.
+- [x] **W9.4** Verify end-to-end with an integration-ish smoke test using `InMemorySpanExporter` (see WP-11). At this stage `npm run test` should still be green — decorators are idempotent-safe if the SDK isn't running.
 
-- [ ] **W9.5** Commit
+- [x] **W9.5** Commit
 
   ```bash
   git add src/modules/ src/database/
@@ -1351,7 +1351,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Modify: `src/common/interceptors/logging.interceptor.ts`
 - Modify: `src/common/filters/all-exceptions.filter.spec.ts` (create if missing)
 
-- [ ] **W10.1** Filter: replace ad-hoc `span.recordException` with `recordExceptionOnSpan`, set status by status-class
+- [x] **W10.1** Filter: replace ad-hoc `span.recordException` with `recordExceptionOnSpan`, set status by status-class
 
   ```ts
   // src/common/filters/all-exceptions.filter.ts
@@ -1372,7 +1372,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W10.2** Interceptor: remove any exception recording; keep success-path attribute enrichment
+- [x] **W10.2** Interceptor: remove any exception recording; keep success-path attribute enrichment
 
   ```ts
   // src/common/interceptors/logging.interceptor.ts
@@ -1380,7 +1380,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   // on success, set request.id and http.route attributes if not already set
   ```
 
-- [ ] **W10.3** Tests
+- [x] **W10.3** Tests
 
   ```ts
   it('filter records exception once with cause chain and sets ERROR for 5xx', async () => {
@@ -1395,7 +1395,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W10.4** Commit
+- [x] **W10.4** Commit
 
   ```bash
   git add src/common/filters/ src/common/interceptors/
@@ -1409,7 +1409,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 - Create: `test/helpers/span-exporter.ts`
 - Create: `test/e2e/observability.e2e-spec.ts`
 
-- [ ] **W11.1** Test helper
+- [x] **W11.1** Test helper
 
   ```ts
   // test/helpers/span-exporter.ts
@@ -1433,7 +1433,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   }
   ```
 
-- [ ] **W11.2** E2E tests
+- [x] **W11.2** E2E tests
 
   ```ts
   // test/e2e/observability.e2e-spec.ts
@@ -1502,7 +1502,7 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
   });
   ```
 
-- [ ] **W11.3** Commit
+- [x] **W11.3** Commit
 
   ```bash
   git add test/
@@ -1526,15 +1526,15 @@ Each work package (WP) is a sequence of bite-sized tasks. Follow TDD inside each
 
 ## Testing Plan
 
-- [ ] `src/errors/utils/cause-chain.util.spec.ts` — WP-1 cases.
-- [ ] `src/telemetry/utils/record-exception.util.spec.ts` — WP-2 cases.
-- [ ] `src/common/redaction/pii-registry.spec.ts`, `string-patterns.spec.ts` — WP-3.
-- [ ] `src/common/redaction/redactor.service.spec.ts`, `allow-pii.util.spec.ts` — WP-4.
-- [ ] `src/errors/types/error-exception.spec.ts` — WP-5.
-- [ ] `src/logger/logger.service.spec.ts` — WP-6 (new blocks).
-- [ ] `src/telemetry/decorators/trace.decorator.spec.ts`, `instrument-class.decorator.spec.ts` — WP-8.
-- [ ] `src/common/filters/all-exceptions.filter.spec.ts` — WP-10 dedup and status rule.
-- [ ] `test/e2e/observability.e2e-spec.ts` — WP-11 end-to-end checks.
+- [x] `src/errors/utils/cause-chain.util.spec.ts` — WP-1 cases.
+- [x] `src/telemetry/utils/record-exception.util.spec.ts` — WP-2 cases.
+- [x] `src/common/redaction/pii-registry.spec.ts`, `string-patterns.spec.ts` — WP-3.
+- [x] `src/common/redaction/redactor.service.spec.ts`, `allow-pii.util.spec.ts` — WP-4.
+- [x] `src/errors/types/error-exception.spec.ts` — WP-5.
+- [x] `src/logger/logger.service.spec.ts` — WP-6 (new blocks).
+- [x] `src/telemetry/decorators/trace.decorator.spec.ts`, `instrument-class.decorator.spec.ts` — WP-8.
+- [x] `src/common/filters/all-exceptions.filter.spec.ts` — WP-10 dedup and status rule.
+- [x] `test/e2e/observability.e2e-spec.ts` — WP-11 end-to-end checks.
 - [ ] Manual Tempo/Loki walkthrough (WP-12 doc):
   1. `docker compose -f docker/grafana/docker-compose.yml up -d`.
   2. `OTEL_ENABLED=true npm run start:dev`.
@@ -1565,14 +1565,31 @@ Commits land on `feat/observability-remediation`; one PR at the end.
 
 ---
 
+## What changed from plan
+
+Two implementation-level deviations came up during WPs 4 and 8 and are worth recording so future maintainers don't try to "fix" them back to the plan text.
+
+1. **`RedactorService.redactFlatAttributes` uses leaf-key matching, not unflatten/flatten.**
+   The plan sketched a `unflatten → redactObject → flatten` round-trip. In practice that doesn't work with `fast-redact`: its `*` wildcard only crosses one key level, so a key like `method.args.user.password` doesn't get matched by `*.password` once unflattened to `{ method: { args: { user: { password: … }}}}`. Worse, round-tripping through arrays loses `fast-redact`'s ability to handle numeric-index keys.
+   The shipped implementation derives a `SENSITIVE_LEAF_KEYS` set from the registry at module load time and matches the **leaf segment** of each flat key directly. The registry is still the sole source of truth — we just read the leaf names out of it once instead of replaying `fast-redact` on a reshaped input. Same for `redactObject`, which now runs a bounded DFS walker after `fast-redact` to catch deeply-nested leaves that a single-level `*` path couldn't reach. Documented inline in `src/common/redaction/redactor.service.ts`.
+
+2. **`@Trace` uses `setDefaultRedactString`, not an injected `RedactorService`.**
+   The plan was written as if `@Trace` could read `redactString` off a DI-provided service. Decorators run at class-declaration time, before the Nest DI container exists, so that's not possible. The shipped design exposes a module-level setter in `record-exception.util.ts`:
+   ```ts
+   export function setDefaultRedactString(fn?: (s: string) => string): void;
+   ```
+   Bootstrap code wires `RedactorService.redactString` into the hook once; `@Trace`'s exception path then uses it via `recordExceptionOnSpan`'s `opts.redactString ?? defaultRedactString ?? identity` chain. The HTTP filter still passes its own DI-bound `redactString` explicitly for the HTTP-boundary recording, so nothing regresses when the hook hasn't been wired yet (e.g. in unit tests that bypass bootstrap).
+
+---
+
 ## Definition of Done
 
 - [ ] All 12 work packages merged on `feat/observability-remediation`.
-- [ ] `npm run test` green.
-- [ ] `npm run test:e2e` green (includes new observability suite).
-- [ ] `npm run type:check` clean.
-- [ ] `npm run lint` clean.
+- [x] `npm run test` green.
+- [x] `npm run test:e2e` green (includes new observability suite).
+- [x] `npm run type:check` clean.
+- [x] `npm run lint` clean.
 - [ ] Manual Tempo/Loki walkthrough in Testing Plan passes.
-- [ ] `docs/guides/FOR-Observability.md` updated.
-- [ ] `CLAUDE.md` routing table includes a row for the redaction system if new engineers should discover it.
+- [x] `docs/guides/FOR-Observability.md` updated.
+- [x] `CLAUDE.md` routing table includes a row for the redaction system if new engineers should discover it.
 - [ ] PR opened with summary linking back to this plan and the three review reports.
