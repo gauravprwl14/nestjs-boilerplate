@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppConfigModule } from '@config/config.module';
 import { AppConfigService } from '@config/config.service';
 import { PrismaModule } from '@database/prisma.module';
+import { DatabaseModule } from '@database/database.module';
 import { AppLoggerModule } from '@logger/logger.module';
 import { HealthModule } from '@modules/health/health.module';
 import { TelemetryModule } from '@telemetry/telemetry.module';
@@ -26,6 +27,7 @@ import { AppClsModule } from '@common/cls/cls.module';
     AppConfigModule,
     AppLoggerModule,
     PrismaModule,
+    DatabaseModule,
     TelemetryModule,
     // Rate limiting
     ThrottlerModule.forRootAsync({
