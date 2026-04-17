@@ -5,7 +5,7 @@
 ```bash
 # 1. Clone the repository
 git clone https://github.com/gauravprwl14/nestjs-boilerplate.git
-cd ai-native-nestjs-backend
+cd nestjs-boilerplate
 
 # 2. Install dependencies
 npm install
@@ -14,8 +14,9 @@ npm install
 cp .env.example .env.development
 # Edit .env.development with your local values
 
-# 4. Start infrastructure (PostgreSQL, Redis, Grafana stack)
-docker compose up -d postgres redis otel-collector tempo loki prometheus grafana
+# 4. Start infrastructure (PostgreSQL only; Grafana stack is optional)
+docker compose up -d postgres
+# Optional: docker compose up -d otel-collector tempo loki prometheus grafana
 
 # 5. Run database migrations
 npm run prisma:migrate:dev
@@ -23,7 +24,11 @@ npm run prisma:migrate:dev
 # 6. Generate Prisma client
 npm run prisma:generate
 
-# 7. Start the app in development mode
+# 7. Seed (2 companies, 7 users, department trees, sample tweets)
+npm run prisma:seed
+# Note the printed user UUIDs — you'll need them for x-user-id.
+
+# 8. Start the app in development mode
 npm run start:dev
 ```
 
@@ -79,9 +84,9 @@ git checkout -b feat/<short-description>
 # - commitlint enforces conventional commits
 
 # Commit message format (commitlint conventional)
-git commit -m "feat(todo): add priority filter to todo items list"
-git commit -m "fix(auth): prevent login with revoked refresh token"
-git commit -m "docs: update auth-flow diagram"
+git commit -m "feat(tweets): add pagination cursor to timeline"
+git commit -m "fix(departments): reject cross-tenant parentId"
+git commit -m "docs: update tweets-sequence diagram"
 ```
 
 ## Commit Types
@@ -99,18 +104,18 @@ git commit -m "docs: update auth-flow diagram"
 ## Running the Full Stack
 
 ```bash
-# Start everything including NestJS app
-docker compose up
+# Start Postgres
+docker compose up -d postgres
 
-# Start only infrastructure (run app locally)
-docker compose up -d postgres redis otel-collector tempo loki prometheus grafana
+# (Optional) add the observability stack
+docker compose up -d otel-collector tempo loki prometheus grafana
 
 # View logs
 docker compose logs -f app
 
-# Grafana UI
-open http://localhost:3001
+# Swagger UI (mock auth: set x-user-id header via Swagger's "Authorize" button)
+open http://localhost:3000/docs
 
-# Swagger UI
-open http://localhost:3000/api/docs
+# Grafana UI (only when OTel stack is running)
+open http://localhost:3001
 ```

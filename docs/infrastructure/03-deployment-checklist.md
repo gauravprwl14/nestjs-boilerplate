@@ -5,13 +5,16 @@ Complete all items before deploying to a new environment.
 ## Pre-Deploy: Code & Configuration
 
 - [ ] All environment variables in `02-environment-configuration.md` are set for the target environment
-- [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `API_KEY_ENCRYPTION_SECRET` are ≥ 32 characters and randomly generated
 - [ ] `DATABASE_URL` points to the correct database (not dev/test)
 - [ ] `NODE_ENV=production`
 - [ ] `LOG_LEVEL=info` (not `debug` or `trace`)
 - [ ] `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` is set (if using observability stack)
 - [ ] `CORS_ORIGINS` is set to specific allowed origins (not `*`)
-- [ ] `THROTTLE_TTL` and `THROTTLE_LIMIT` are tuned for expected traffic
+
+> **Before shipping to production, REPLACE `MockAuthMiddleware` with a real
+> auth mechanism** (JWT, OIDC, or equivalent) that publishes the same CLS
+> tuple `{ USER_ID, COMPANY_ID, USER_DEPARTMENT_IDS }`. Mock auth trusts the
+> `x-user-id` header unconditionally and is a complete auth bypass.
 
 ## Pre-Deploy: Database
 
@@ -20,6 +23,7 @@ Complete all items before deploying to a new environment.
 - [ ] `npm run prisma:migrate:deploy` has been tested in staging first
 - [ ] Database backups are confirmed before running migrations on production
 - [ ] Connection pool settings are appropriate for expected concurrency
+- [ ] Composite unique keys and tenancy FKs are present (they are essential for cross-tenant safety)
 
 ## Pre-Deploy: Build
 
@@ -30,7 +34,7 @@ npm run type:check
 # 2. Lint
 npm run lint
 
-# 3. Tests pass
+# 3. Tests pass (unit + integration + e2e)
 npm run test
 npm run test:e2e
 
@@ -42,7 +46,7 @@ npm run build
 
 ```bash
 # 1. Pull latest image / deploy new container
-docker pull <registry>/ai-native-nestjs-backend:<tag>
+docker pull <registry>/enterprise-twitter:<tag>
 
 # 2. Run migrations (before starting new app instances)
 docker run --env-file .env.production <image> npm run prisma:migrate:deploy
@@ -50,17 +54,18 @@ docker run --env-file .env.production <image> npm run prisma:migrate:deploy
 # 3. Start new app instances
 docker compose -f docker-compose.prod.yml up -d app
 
-# 4. Verify health check
-curl http://<host>:3000/api/v1/health
+# 4. Verify the app is responding (no /health endpoint ships — use Swagger or the timeline smoke test below)
+curl -sS -H "x-user-id: <seeded-user-uuid>" http://<host>:3000/api/v1/timeline | jq .
 ```
 
 ## Post-Deploy Verification
 
-- [ ] `GET /api/v1/health` returns `200 { status: 'ok' }`
-- [ ] `POST /api/v1/auth/login` returns `200` with a valid token
+- [ ] `GET /api/v1/timeline` with a seeded `x-user-id` returns `200` with an array (real auth flows when mock-auth is replaced)
+- [ ] `GET /api/v1/timeline` **without** `x-user-id` returns `401 AUT0001`
+- [ ] `POST /api/v1/tweets` with valid body returns `201`
+- [ ] Cross-tenant `departmentIds` in `POST /tweets` returns `400 VAL0008` (prove tenant isolation)
 - [ ] Grafana shows incoming traces (if OTel enabled)
 - [ ] Logs appear in Loki with correct `APP_NAME` service label
-- [ ] Error rate in Prometheus is `0` after smoke test
 
 ## Rollback Plan
 
@@ -78,6 +83,5 @@ docker compose -f docker-compose.prod.yml up -d app --image <previous-tag>
 ## Scaling Notes
 
 - The app is stateless — scale horizontally by running multiple container instances behind a load balancer.
-- Session state is stored in JWT tokens (stateless) and Redis (BullMQ queues).
-- Ensure all instances share the same `JWT_*` secrets — otherwise tokens signed on one instance won't verify on another.
-- Redis must be accessible from all app instances.
+- No Redis / no BullMQ in this build, so no cross-instance shared state beyond Postgres.
+- When you swap in a real auth layer (JWT, OIDC, …), make sure its keys/tokens are shared across all instances.

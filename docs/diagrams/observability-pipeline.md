@@ -1,5 +1,7 @@
 # Observability Pipeline
 
+<!-- DOC-SYNC: Diagram reviewed on 2026-04-17. Pipeline shape unchanged from the pivot; enable with OTEL_ENABLED=true. Please verify visual accuracy before committing. -->
+
 > See `docs/guides/FOR-Observability.md` for the full feature guide.
 > See `docs/infrastructure/04-grafana-stack-setup.md` for setup instructions.
 
@@ -40,9 +42,9 @@ flowchart LR
 
 ### Logs
 - Structured JSON via Pino (nestjs-pino)
-- Every log record includes: `traceId`, `spanId`, `requestId`, `userId` (when available)
-- `AppLogger.logEvent(eventName, payload)` — semantic event logging
-- `AppLogger.logError(error, context)` — structured error logging
+- Every log record includes: `traceId`, `spanId`, `requestId`, `userId`, `companyId` (when available, via CLS)
+- `AppLogger.logEvent(eventName, { attributes })` — semantic event logging (always INFO)
+- `AppLogger.logError(eventName, error, { attributes })` — structured error logging (always ERROR, records OTel span status)
 
 ## Correlation
 
@@ -58,6 +60,6 @@ Grafana supports trace-to-logs correlation via the `traceId` field.
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `OTEL_ENABLED` | Enable/disable OTel SDK | `false` |
-| `OTEL_SERVICE_NAME` | Service name in traces | `ai-native-nestjs-backend` |
+| `OTEL_SERVICE_NAME` | Service name in traces | `enterprise-twitter` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTel Collector gRPC endpoint | (required when enabled) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport: `grpc`, `http`, `http/protobuf` | `grpc` |

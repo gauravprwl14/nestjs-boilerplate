@@ -4,52 +4,58 @@
 
 ```
 src/
-├── app.module.ts              # Root module — import order matters (globals first)
+├── app.module.ts              # Root module — import order matters (AppClsModule FIRST)
 ├── main.ts                    # Bootstrap; OTel SDK MUST be initialised before NestJS
 ├── bootstrap/                 # Graceful shutdown + process signal handlers
 ├── config/                    # Environment config only; no business logic
 │   └── schemas/               # Zod env schema — add new vars here first
 ├── common/                    # Shared infrastructure — never import from modules/
-│   ├── constants/             # App constants + error codes registry
-│   ├── decorators/            # Custom parameter and method decorators
-│   ├── filters/               # Exception filters (AllExceptions, Prisma)
+│   ├── cls/                   # ClsKey enum + AppClsModule (nestjs-cls)
+│   ├── constants/             # App constants + route header names
+│   ├── decorators/            # Custom parameter/method decorators (@Public, @CurrentUser, @ApiEndpoint)
+│   ├── filters/               # AllExceptionsFilter
+│   ├── guards/                # AuthContextGuard (registered as APP_GUARD in AppModule)
 │   ├── interceptors/          # Transform, logging, timeout interceptors
 │   ├── interfaces/            # Shared TypeScript interfaces (ApiResponse, Paginated)
-│   ├── middleware/            # RequestId, SecurityHeaders
+│   ├── middleware/            # RequestId, SecurityHeaders, MockAuth
 │   └── pipes/                 # ZodValidationPipe, ParseUuidPipe
-├── database/                  # PrismaService, PrismaModule, BaseRepository, DatabaseService, DatabaseModule
-│   ├── prisma/                # schema.prisma lives here
-│   ├── users/                 # UsersDbRepository, UsersDbService
-│   ├── auth-credentials/      # AuthCredentialsDbRepository, AuthCredentialsDbService
-│   └── todo-lists/            # TodoListsDbRepository, TodoListsDbService
+├── database/                  # PrismaService, DatabaseModule, BaseRepository, tenant-scope extension
+│   ├── prisma/                # schema.prisma + migrations
+│   ├── extensions/            # tenant-scope.extension.ts (Prisma $extends)
+│   ├── users/                 # UsersDbRepository, UsersDbService (findAuthContext only)
+│   ├── companies/             # CompaniesDbRepository, CompaniesDbService
+│   ├── departments/           # DepartmentsDbRepository, DepartmentsDbService
+│   └── tweets/                # TweetsDbRepository (incl. raw-SQL timeline), TweetsDbService
 ├── errors/                    # ErrorException, domain error-code constants, Prisma error handler
 │   ├── error-codes/           # Domain constants: GEN, VAL, AUT, AUZ, DAT, SRV
 │   ├── handlers/              # prisma-error.handler.ts (Prisma -> ErrorException mapping)
+│   ├── interfaces/            # ErrorCodeDefinition
 │   └── types/                 # error-exception.ts
 ├── logger/                    # AppLogger, logger interfaces, sanitizer util
 ├── telemetry/                 # OTel SDK init, TelemetryService, decorators
 │   └── decorators/            # @Trace, @InstrumentClass, @IncrementCounter, @RecordDuration
-├── queue/                     # QueueModule — BullMQ Redis connection only
 └── modules/                   # Feature modules — each is self-contained
-    ├── auth/
-    ├── health/
-    ├── tags/
-    ├── todo-items/
-    ├── todo-lists/
-    └── users/
+    ├── departments/
+    └── tweets/
 ```
 
 ## Rules
 
-**Do** place new feature code under `src/modules/<feature>/`. Each feature module owns its controller, service, DTOs, and processor (if async).
+**Do** place new feature code under `src/modules/<feature>/`. Each feature
+module owns its controller, service, DTOs, and (if async) processor.
 
-**Do** place new shared infrastructure (new pipes, new decorators, new filters) under `src/common/`.
+**Do** place new shared infrastructure (new pipes, new decorators, new filters,
+new middleware) under `src/common/`.
 
-**Do not** create cross-module imports between feature modules. If two feature modules need shared logic, extract it to `src/common/` or a dedicated shared module.
+**Do not** create cross-module imports between feature modules. If two feature
+modules need shared logic, extract it to `src/common/` or — if it's database
+logic — introduce a new `*DbService` under `src/database/`.
 
-**Do not** add business logic to `src/config/` or `src/bootstrap/`. Those directories contain only setup code.
+**Do not** add business logic to `src/config/` or `src/bootstrap/`. Those
+directories contain only setup code.
 
-**Do not** put constants inline in service or controller files. Define them in `<module>.constants.ts` or `src/common/constants/`.
+**Do not** put constants inline in service or controller files. Define them in
+`<module>.constants.ts` or `src/common/constants/`.
 
 ## Module File Checklist
 
@@ -57,18 +63,17 @@ Every feature module directory should contain:
 
 ```
 src/modules/<feature>/
-├── <feature>.module.ts         # REQUIRED — wires providers and imports
+├── <feature>.module.ts         # REQUIRED — wires controllers/services
 ├── <feature>.controller.ts     # REQUIRED — HTTP route handlers
 ├── <feature>.service.ts        # REQUIRED — business logic
-├── dto/                        # REQUIRED — one file per DTO
-│   ├── create-<feature>.dto.ts
-│   └── update-<feature>.dto.ts
-├── <feature>.constants.ts      # Optional — module-local string constants
-└── <feature>.processor.ts      # Optional — BullMQ processor
+├── dto/                        # REQUIRED — one file per DTO (Zod schema + inferred type)
+│   └── create-<feature>.dto.ts
+└── <feature>.constants.ts      # Optional — module-local string constants
 ```
 
 ## Test File Placement
 
-- Unit tests: `src/modules/<feature>/<file>.spec.ts` (co-located)
-- E2E tests: `test/<feature>.e2e-spec.ts`
-- Mock helpers: `test/helpers/<entity>.mock.ts`
+- Unit tests: `test/unit/**` mirroring the source tree
+- Integration tests: `test/integration/**` (run against a real Postgres)
+- E2E tests: `test/e2e/*.e2e-spec.ts`
+- Mock helpers: `test/helpers/` (`factories.ts`, `mock-config.ts`, `mock-prisma.ts`)

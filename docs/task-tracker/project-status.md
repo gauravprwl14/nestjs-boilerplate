@@ -12,111 +12,79 @@ Last updated: 2026-04-17
 - [x] AppLoggerModule (global, Pino-backed, trace-correlated)
 - [x] PrismaModule (global, `@prisma/adapter-pg` native driver)
 - [x] DatabaseModule (global, per-aggregate DbRepository + DbService, DatabaseService)
-- [x] TelemetryModule (global, OTel SDK)
+- [x] TelemetryModule (global, OTel SDK — disabled by default)
 - [x] BaseRepository with soft-delete helpers and tx-aware `delegateFor(client)` API
-- [x] Prisma schema relocated to `src/database/prisma/schema.prisma`
+- [x] Prisma schema at `src/database/prisma/schema.prisma`
 - [x] Common infrastructure (filters, interceptors, middleware, pipes, decorators)
 - [x] Graceful shutdown (`bootstrap/graceful-shutdown.ts`)
 
-### Authentication
+### Multi-Tenancy (new)
 
-- [x] JWT strategy (access + refresh rotation)
-- [x] API Key strategy (hashed, bcrypt comparison)
-- [x] Global `JwtAuthGuard` with `@Public()` bypass
-- [x] `POST /auth/register`
-- [x] `POST /auth/login`
-- [x] `POST /auth/refresh`
-- [x] `POST /auth/change-password`
-- [x] `POST /auth/api-keys` — create
-- [x] `GET /auth/api-keys` — list
-- [x] `DELETE /auth/api-keys/:id` — revoke
+- [x] `MockAuthMiddleware` resolves `x-user-id` → CLS tuple `{ userId, companyId, userDepartmentIds }`
+- [x] Global `AuthContextGuard` (`APP_GUARD`) — requires `companyId` in CLS; `@Public()` opt-out
+- [x] Prisma `$extends` tenant-scope extension (`Department`, `UserDepartment`, `Tweet`, `TweetDepartment`)
+- [x] Raw-SQL safety: `findTimelineForUser` hard-codes `company_id` in every predicate
+- [x] Schema composite FKs `(parentId, companyId) → departments(id, companyId)` and `(tweetId/departmentId, companyId)` on pivots
+- [x] Service-layer pre-validation (`findExistingIdsInCompany`) → `VAL0008` on cross-tenant references
 
-### Users
+### Departments
 
-- [x] `GET /users/me`
-- [x] `PATCH /users/me`
-- [x] `SafeUser` type (passwordHash excluded)
+- [x] `POST /api/v1/departments`
+- [x] `GET /api/v1/departments`
+- [x] `GET /api/v1/departments/tree`
+- [x] Adjacency-list model, unbounded depth
+- [x] Pure-function `buildTree()` (unit-tested)
 
-### Todo Domain
+### Tweets / Timeline
 
-- [x] `POST /todo-lists`
-- [x] `GET /todo-lists`
-- [x] `GET /todo-lists/:id`
-- [x] `PATCH /todo-lists/:id`
-- [x] `DELETE /todo-lists/:id` (soft delete)
-- [x] `POST /todo-lists/:listId/items`
-- [x] `GET /todo-lists/:listId/items` (paginated + filters)
-- [x] `GET /todo-items/:id`
-- [x] `PATCH /todo-items/:id` (status transitions enforced)
-- [x] `DELETE /todo-items/:id` (soft delete)
-- [x] `POST /tags`
-- [x] `GET /tags`
-- [x] `POST /todo-items/:id/tags/:tagId`
-- [x] `DELETE /todo-items/:id/tags/:tagId`
-- [x] BullMQ processor for todo-item-completed event
-
-### Telemetry & Observability
-
-- [x] OpenTelemetry SDK init (`src/telemetry/otel-sdk.ts`)
-- [x] `@Trace()` decorator
-- [x] `@InstrumentClass()` decorator
-- [x] `@IncrementCounter()` decorator
-- [x] `@RecordDuration()` decorator
-- [x] `TelemetryService.addSpanAttributes()`
-- [x] Grafana Compose stack (Tempo, Loki, Prometheus, OTel Collector)
-- [x] Pre-provisioned Grafana datasources
+- [x] `POST /api/v1/tweets` — content ≤ 280, visibility ∈ `{COMPANY, DEPARTMENTS, DEPARTMENTS_AND_SUBDEPARTMENTS}`
+- [x] `GET /api/v1/timeline` — newest-first, default limit 100
+- [x] Recursive-CTE timeline query (single round-trip, `UNION` for per-iteration dedup)
+- [x] Author self-visibility in timeline (prevents "ghost tweets")
 
 ### Error Handling
 
 - [x] `ErrorException` class (extends `Error`) with `definition`, `code`, `statusCode`, `details`, `cause`
 - [x] Static helpers: `notFound()`, `validation()`, `validationFromCV()`, `internal()`, `wrap()`
 - [x] Domain error constants per file in `src/errors/error-codes/` (`GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`)
+- [x] New codes: `VAL.DEPARTMENT_IDS_REQUIRED (VAL0007)`, `VAL.DEPARTMENT_NOT_IN_COMPANY (VAL0008)`, `DAT.DEPARTMENT_NOT_FOUND (DAT0009)`, `DAT.COMPANY_NOT_FOUND (DAT0010)`, `AUZ.CROSS_TENANT_ACCESS (AUZ0004)`
 - [x] `AllExceptionsFilter` (thin — delegates to `ErrorException.toResponse()`)
-- [x] Prisma error handler in filter pipeline (P2002, P2003, P2011, P2025, P2000 mapped; cause preserved)
+- [x] Prisma error handler in filter pipeline
 - [x] Cause chain support in responses (non-prod) and logs
-
-### Documentation (Plan 5)
-
-- [x] `CLAUDE.md` — root AI router
-- [x] `PLOT.md` — project vision and planning
-- [x] `docs/CONTEXT.md` + all subfolder CONTEXT.md files
-- [x] `docs/prd/todo-app-prd.md`
-- [x] `docs/architecture/` (4 files)
-- [x] `docs/diagrams/` (4 files)
-- [x] `docs/coding-guidelines/` (11 files)
-- [x] `docs/infrastructure/` (4 files)
-- [x] `docs/plans/template.md`
-- [x] `docs/assumptions/technical-assumptions.md`
-- [x] `docs/guides/` (4 FOR-\*.md files)
-- [x] `.claude/` (settings, agents, skills)
+- [x] Fallback Express error handler after `app.listen()` for router-layer 404s
 
 ### Testing
 
-- [ ] Unit tests for `AuthService`
-- [ ] Unit tests for `TodoListsService`
-- [ ] Unit tests for `TodoItemsService`
-- [ ] Unit tests for `TagsService`
-- [ ] Unit tests for `AllExceptionsFilter`
-- [ ] Unit tests for `handlePrismaError`
-- [ ] E2E tests for all 24 endpoints
-- [ ] Test helpers: `createPrismaMock()`, mock factories for all entities
-- [ ] CI pipeline (GitHub Actions: lint → type-check → test → build)
+- [x] Unit tests: `MockAuthMiddleware`, `AuthContextGuard`, tenant-scope extension, CLS, `@ApiEndpoint`
+- [x] Unit tests: Users/Companies/Departments/Tweets DbRepository + DbService
+- [x] Unit tests: `DepartmentsService`, `TweetsService`
+- [x] Integration test: `test/integration/acl-matrix.spec.ts` — 13-case visibility matrix against real Postgres
+- [x] E2E test: `test/e2e/tweets.e2e-spec.ts`
+- [x] Mock helpers: `test/helpers/factories.ts`, `mock-config.ts`, `mock-prisma.ts`
 
-### Database Layer Refactor (branch: database-layer-refactor)
+### Documentation
 
-- [x] Move Prisma schema to `src/database/prisma/`
-- [x] Relocate `BaseRepository` to `src/database/base.repository.ts`; tx-aware `delegateFor(client)` API
-- [x] Scaffold `DatabaseService` + `DatabaseModule` (`@Global()`)
-- [x] Migrate users aggregate → `UsersDbRepository` + `UsersDbService`
-- [x] Migrate auth-credentials aggregate → `AuthCredentialsDbRepository` + `AuthCredentialsDbService`
-- [x] Migrate todo-lists aggregate → `TodoListsDbRepository` + `TodoListsDbService`
-- [x] Migrate todo-items aggregate → `TodoItemsDbRepository` + `TodoItemsDbService` (owns `TodoItemTag` join table; `assignTag`/`removeTag` methods)
-- [x] Migrate tags aggregate → `TagsDbRepository` + `TagsDbService` (owns Tag catalog; join-table ownership stays with `TodoItemsDbService`)
-- [x] Wrap `AuthService.register` in `runInTransaction` + e2e rollback test (`test/e2e/auth-register-rollback.e2e-spec.ts`)
-- [x] Cleanup + doc sync (all 5 aggregates documented; `add-module` skill updated)
+- [x] `CLAUDE.md` — root AI router (rewritten for pivot)
+- [x] `README.md` — multi-tenant approach + ACL + department hierarchy
+- [x] `docs/prd/enterprise-twitter-prd.md`
+- [x] `docs/architecture/` — high-level, service, database-design, mock-auth-flow
+- [x] `docs/diagrams/` — tweets-sequence, error-handling-flow, observability-pipeline
+- [x] `docs/guides/` — FOR-Multi-Tenancy, FOR-Tweets, FOR-Departments, FOR-Database-Layer, FOR-Error-Handling, FOR-Observability
+- [x] `docs/coding-guidelines/` — all guidelines updated
+- [x] `docs/infrastructure/02-environment-configuration.md` — trimmed for the new env schema
 
-All 20 unit-test suites (159 tests) pass. Feature code no longer writes Prisma calls directly — every module delegates to its aggregate `*DbService`.
+### Removed in the pivot
+
+- [x] Auth module (JWT + API Key) — archived docs: `docs/archival/2026-04-17_*`
+- [x] Users module (CRUD) — kept only `UsersDbService.findAuthContext` for mock auth
+- [x] TodoLists / TodoItems / Tags modules — all aggregates and their DB layers
+- [x] Health module (Terminus)
+- [x] Queue module (BullMQ + Redis)
+- [x] ThrottlerModule (rate limiting)
+- [x] `@ApiAuth()` / `@Roles()` decorators and `signature-verification.middleware.ts`
 
 ## Current Focus
 
-Database layer refactor — **complete**. Branch `database-layer-refactor` ready for review and merge.
+Enterprise Twitter assignment implementation — **complete**.
+All 5 endpoints ship with unit + integration + e2e coverage; ACL matrix
+proves visibility rules against a real Postgres.

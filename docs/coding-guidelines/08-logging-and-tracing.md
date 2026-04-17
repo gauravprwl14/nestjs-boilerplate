@@ -14,18 +14,18 @@ Never use `console.log`. Never instantiate Pino directly.
 
 ```typescript
 // Structured event log — use for domain events
-this.logger.logEvent('todo-item.completed', {
-  itemId,
-  userId,
-  completedAt: new Date().toISOString(),
+this.logger.logEvent('tweet.created', {
+  attributes: { tweetId, companyId, authorId, visibility },
 });
 
 // Error log — use in exception catch blocks
-this.logger.logError(error, 'TodoItemsService.update');
+this.logger.logError('tweets.create.failed', error, {
+  attributes: { companyId },
+});
 
 // Child logger with persistent context
-const childLogger = this.logger.child({ userId, requestId });
-childLogger.logEvent('auth.login-success', { email });
+const childLogger = this.logger.child({ userId, companyId, requestId });
+childLogger.logEvent('department.created', { attributes: { departmentId } });
 ```
 
 ## Log Levels
@@ -45,8 +45,8 @@ Apply `@Trace()` to service methods that represent meaningful units of work for 
 The decorator creates an OTel span around the method execution.
 
 ```typescript
-@Trace('todo-lists.create')
-async create(userId: string, dto: CreateTodoListDto): Promise<TodoList> {
+@Trace('tweets.create')
+async create(dto: CreateTweetDto): Promise<Tweet> {
   // ...
 }
 ```
@@ -61,7 +61,7 @@ Use this for services where you want comprehensive tracing without per-method de
 ```typescript
 @Injectable()
 @InstrumentClass()
-export class TagsService {
+export class DepartmentsService {
   // All public methods get auto-traced
 }
 ```
@@ -73,9 +73,9 @@ Do **not** combine `@InstrumentClass` with per-method `@Trace` — you will get 
 Use metric decorators for business-level metrics (not request-level, which is auto-instrumented):
 
 ```typescript
-@IncrementCounter('todo_items_completed_total')
-@RecordDuration('todo_item_completion_duration_ms')
-async completeItem(id: string): Promise<void> { ... }
+@IncrementCounter('tweets_created_total')
+@RecordDuration('tweets_create_duration_ms')
+async create(dto: CreateTweetDto): Promise<Tweet> { ... }
 ```
 
 ## addSpanAttributes
@@ -84,8 +84,9 @@ Add business context to the current OTel span for richer trace search:
 
 ```typescript
 this.telemetry.addSpanAttributes({
-  'todo.list.id': listId,
-  'todo.item.status': dto.status,
+  'tweet.id': tweetId,
+  'tweet.visibility': dto.visibility,
+  'company.id': companyId,
   'user.id': userId,
 });
 ```
@@ -94,5 +95,5 @@ Use OTel semantic convention attribute names where they exist.
 
 ## Sensitive Data
 
-The logger's `sanitizer.util.ts` strips known sensitive fields (`password`, `passwordHash`, `token`, `keyHash`, `authorization`).
-Never log raw passwords or tokens even if the sanitizer exists — rely on the sanitizer as a safety net, not the primary defence.
+The logger's `sanitizer.util.ts` strips known sensitive fields (`password`, `passwordHash`, `token`, `keyHash`, `authorization`, `x-user-id`).
+Never log raw credentials or tokens even if the sanitizer exists — rely on the sanitizer as a safety net, not the primary defence.

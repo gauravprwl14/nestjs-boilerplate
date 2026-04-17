@@ -63,10 +63,10 @@ src/logger/
 
 | Method | Usage |
 |--------|-------|
-| `logEvent(event, payload)` | Semantic domain event: `logEvent('todo.completed', { itemId })` |
-| `logError(error, context)` | Structured error log with stack + code |
-| `child(bindings)` | Returns child logger with persistent fields (e.g. `{ userId }`) |
-| `debug/info/warn/error(msg, payload?)` | Standard level logs |
+| `logEvent(event, payload)` | Semantic domain event: `logEvent('tweet.created', { attributes: { tweetId, companyId } })` |
+| `logError(name, error, opts?)` | Structured error log with stack + code + OTel span recording |
+| `child(bindings)` | Returns child logger with persistent fields (e.g. `{ userId, companyId }`) |
+| `log(msg, { level, attributes? })` | Escape hatch for non-INFO/non-ERROR levels |
 
 ### TelemetryService
 
@@ -80,20 +80,20 @@ src/logger/
 
 ```typescript
 // Wrap a single method in a span
-@Trace('todo-lists.findAll')
-async findAll(): Promise<TodoList[]> { ... }
+@Trace('tweets.timeline')
+async timeline(): Promise<TimelineTweet[]> { ... }
 
 // Wrap every public method in spans
 @InstrumentClass()
-export class TagsService { ... }
+export class DepartmentsService { ... }
 
 // Increment a counter each time method is called
-@IncrementCounter('todo_items_completed_total')
-async complete(id: string) { ... }
+@IncrementCounter('tweets_created_total')
+async create(dto: CreateTweetDto) { ... }
 
 // Record the method duration as a histogram
-@RecordDuration('auth_login_duration_ms')
-async login(dto: LoginDto) { ... }
+@RecordDuration('tweets_timeline_duration_ms')
+async timeline() { ... }
 ```
 
 ---
@@ -114,7 +114,7 @@ async login(dto: LoginDto) { ... }
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `OTEL_ENABLED` | Enable OTel SDK | `false` |
-| `OTEL_SERVICE_NAME` | Service name in all telemetry signals | `ai-native-nestjs-backend` |
+| `OTEL_SERVICE_NAME` | Service name in all telemetry signals | `enterprise-twitter` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector gRPC endpoint | Required when enabled |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport protocol | `grpc` |
 | `LOG_LEVEL` | Minimum log level | `info` |

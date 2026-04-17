@@ -44,14 +44,14 @@ docker compose restart otel-collector
 
 1. Make a request to any API endpoint with `OTEL_ENABLED=true`.
 2. Open Grafana → Explore → Select **Tempo** datasource.
-3. Search by service name `ai-native-nestjs-backend`.
+3. Search by service name `enterprise-twitter`.
 4. Traces should appear within 5–10 seconds.
 
 ## Verifying Logs Reach Loki
 
 1. Make a request that generates a log (any request is logged by `LoggingInterceptor`).
 2. Open Grafana → Explore → Select **Loki** datasource.
-3. Query: `{service_name="ai-native-nestjs-backend"}`.
+3. Query: `{service_name="enterprise-twitter"}`.
 
 ## Verifying Metrics Reach Prometheus
 

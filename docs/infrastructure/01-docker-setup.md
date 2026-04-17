@@ -8,12 +8,13 @@ The `docker-compose.yml` in the project root defines:
 |---------|-------|------|---------|
 | `app` | Local Dockerfile | 3000 | NestJS application |
 | `postgres` | postgres:16-alpine | 5433→5432 | Primary database |
-| `redis` | redis:7-alpine | 6379 | BullMQ + cache |
-| `otel-collector` | otel/opentelemetry-collector-contrib:0.103.0 | 4317, 4318, 8889 | OTel fan-out |
-| `tempo` | grafana/tempo:2.5.0 | 3200 | Trace storage |
-| `loki` | grafana/loki:3.1.0 | 3100 | Log storage |
-| `prometheus` | prom/prometheus:v2.53.0 | 9090 | Metrics storage |
-| `grafana` | grafana/grafana:11.1.0 | 3001→3000 | Observability UI |
+| `otel-collector` | otel/opentelemetry-collector-contrib | 4317, 4318, 8889 | OTel fan-out (optional) |
+| `tempo` | grafana/tempo | 3200 | Trace storage (optional) |
+| `loki` | grafana/loki | 3100 | Log storage (optional) |
+| `prometheus` | prom/prometheus | 9090 | Metrics storage (optional) |
+| `grafana` | grafana/grafana | 3001→3000 | Observability UI (optional) |
+
+> Redis is no longer part of this build — BullMQ has been removed.
 
 ## Quick Start
 
@@ -21,8 +22,11 @@ The `docker-compose.yml` in the project root defines:
 # Start all services (app + infrastructure)
 docker compose up
 
-# Start infrastructure only (run app locally with npm run start:dev)
-docker compose up -d postgres redis otel-collector tempo loki prometheus grafana
+# Start Postgres only (run app locally with npm run start:dev)
+docker compose up -d postgres
+
+# Optional: add observability backends
+docker compose up -d otel-collector tempo loki prometheus grafana
 
 # Check service health
 docker compose ps
@@ -43,11 +47,9 @@ The app service reads `.env.development`. Required variables for Docker:
 
 ```bash
 # .env.development (Docker overrides)
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/todo_dev
-REDIS_HOST=redis
-REDIS_PORT=6379
-OTEL_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+DATABASE_URL=postgresql://postgres:postgres@postgres:5432/enterprise_twitter_dev
+OTEL_ENABLED=false
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
 Note: When running the app locally (outside Docker), use `localhost` instead of service names.
@@ -64,15 +66,14 @@ Note: When running the app locally (outside Docker), use `localhost` instead of 
 | Volume | Purpose |
 |--------|---------|
 | `postgres-data` | PostgreSQL data persistence |
-| `redis-data` | Redis AOF/RDB persistence |
-| `tempo-data` | Trace storage |
-| `loki-data` | Log storage |
-| `prometheus-data` | Metrics storage |
-| `grafana-data` | Dashboard definitions |
+| `tempo-data` | Trace storage (optional stack) |
+| `loki-data` | Log storage (optional stack) |
+| `prometheus-data` | Metrics storage (optional stack) |
+| `grafana-data` | Dashboard definitions (optional stack) |
 
 ## Health Checks
 
-All infrastructure services have health checks. The `app` service waits for `postgres` and `redis` to be healthy before starting (`depends_on: condition: service_healthy`).
+All infrastructure services have health checks. The `app` service waits for `postgres` to be healthy before starting (`depends_on: { postgres: { condition: service_healthy } }`).
 
 ## Grafana Access
 

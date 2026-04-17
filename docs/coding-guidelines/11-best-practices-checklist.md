@@ -21,17 +21,20 @@ Use this checklist before opening a pull request.
 
 ## Database
 
-- [ ] All queries on soft-deletable tables include `deletedAt: null` filter
-- [ ] Ownership is verified before any mutation (user owns the resource)
-- [ ] `passwordHash` is never returned in API responses — use `SafeUser` or explicit `select`
+- [ ] Tenant-scoped aggregates go through `prisma.tenantScoped` (injected automatically in repositories that route `delegateFor` via it)
+- [ ] Tenant-scoped writes never use nested `connect` — use flat payloads with explicit `companyId`
+- [ ] Raw SQL queries hard-code `company_id = ${companyId}` in every predicate and CTE
+- [ ] Soft-deletable queries include `deletedAt: null` filter (no soft-deletable aggregates ship in this build, but the pattern still applies)
 - [ ] Multi-step mutations that must be atomic use `DatabaseService.runInTransaction()` (not `prisma.$transaction()` directly from feature code)
 - [ ] New columns with high query frequency have an index in the Prisma schema
+- [ ] New tenant-scoped models are added to `TENANT_SCOPED_MODELS` in `src/database/extensions/tenant-scope.extension.ts`
 
 ## Auth & Security
 
-- [ ] New routes that require authentication use `@ApiAuth()` (not `@UseGuards(JwtAuthGuard)` directly)
-- [ ] New public routes are decorated with `@Public()`
-- [ ] API key raw value is never logged or stored — only the hash is persisted
+- [ ] New routes rely on the global `AuthContextGuard` (via `MockAuthMiddleware` publishing CLS). Routes that must stay anonymous are decorated with `@Public()`
+- [ ] `companyId` and `authorId` are NEVER read from the request body — always from CLS
+- [ ] Controllers that require mock auth add `@ApiSecurity('x-user-id')` for Swagger
+- [ ] Cross-tenant attempts fail with `AUZ.CROSS_TENANT_ACCESS` (extension) or `VAL.DEPARTMENT_NOT_IN_COMPANY` (service pre-validation)
 
 ## Module / DI
 
