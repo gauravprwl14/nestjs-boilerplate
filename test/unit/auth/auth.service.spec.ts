@@ -2,9 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '@modules/auth/auth.service';
 import { UsersDbService } from '@database/users/users.db-service';
-import { PrismaService } from '@database/prisma.service';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { AppConfigService } from '@config/config.service';
-import { createMockPrisma } from '../../helpers/mock-prisma';
 import { createMockConfig } from '../../helpers/mock-config';
 import { createTestUser } from '../../helpers/factories';
 import { ErrorException } from '@errors/types/error-exception';
@@ -22,6 +21,17 @@ const createMockUsersDbService = () => ({
   resetFailedLogin: jest.fn(),
 });
 
+const createMockAuthCredentialsDbService = () => ({
+  issueRefreshToken: jest.fn(),
+  findRefreshTokenByValueWithUser: jest.fn(),
+  revokeRefreshToken: jest.fn(),
+  revokeAllActiveRefreshTokensForUser: jest.fn(),
+  createApiKey: jest.fn(),
+  findApiKeysByUserId: jest.fn(),
+  findApiKeyByIdForUser: jest.fn(),
+  revokeApiKey: jest.fn(),
+});
+
 const createMockJwtService = () => ({
   sign: jest.fn().mockReturnValue('mock-token'),
   decode: jest.fn().mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 3600 }),
@@ -30,19 +40,19 @@ const createMockJwtService = () => ({
 
 describe('AuthService', () => {
   let service: AuthService;
-  let mockPrisma: ReturnType<typeof createMockPrisma>;
+  let mockAuthCredentialsDb: ReturnType<typeof createMockAuthCredentialsDbService>;
   let mockConfig: ReturnType<typeof createMockConfig>;
   let mockUsersDb: ReturnType<typeof createMockUsersDbService>;
   let mockJwtService: ReturnType<typeof createMockJwtService>;
 
   beforeEach(async () => {
-    mockPrisma = createMockPrisma();
+    mockAuthCredentialsDb = createMockAuthCredentialsDbService();
     mockConfig = createMockConfig();
     mockUsersDb = createMockUsersDbService();
     mockJwtService = createMockJwtService();
 
-    // Set up default mock for refreshToken.create (needed for generateTokens)
-    mockPrisma.refreshToken.create.mockResolvedValue({
+    // Set up default mock for issueRefreshToken (needed for generateTokens)
+    mockAuthCredentialsDb.issueRefreshToken.mockResolvedValue({
       id: faker.string.uuid(),
       token: 'mock-refresh-token',
       userId: faker.string.uuid(),
@@ -56,7 +66,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: AppConfigService, useValue: mockConfig },
         { provide: JwtService, useValue: mockJwtService },
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: AuthCredentialsDbService, useValue: mockAuthCredentialsDb },
         { provide: UsersDbService, useValue: mockUsersDb },
       ],
     }).compile();
@@ -233,8 +243,8 @@ describe('AuthService', () => {
         user: mockUser,
       };
 
-      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken);
-      mockPrisma.refreshToken.update.mockResolvedValue({
+      mockAuthCredentialsDb.findRefreshTokenByValueWithUser.mockResolvedValue(mockRefreshToken);
+      mockAuthCredentialsDb.revokeRefreshToken.mockResolvedValue({
         ...mockRefreshToken,
         revokedAt: new Date(),
       });
@@ -245,14 +255,12 @@ describe('AuthService', () => {
       // --- ASSERT ---
       expect(result.accessToken).toBeDefined();
       expect(result.refreshToken).toBeDefined();
-      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: mockRefreshToken.id } }),
-      );
+      expect(mockAuthCredentialsDb.revokeRefreshToken).toHaveBeenCalledWith(mockRefreshToken.id);
     });
 
     it('should throw tokenInvalid (AUT0003) when token not found', async () => {
       // --- ARRANGE ---
-      mockPrisma.refreshToken.findUnique.mockResolvedValue(null);
+      mockAuthCredentialsDb.findRefreshTokenByValueWithUser.mockResolvedValue(null);
 
       // --- ACT & ASSERT ---
       await expect(service.refreshTokens('invalid-token')).rejects.toMatchObject({
@@ -271,7 +279,7 @@ describe('AuthService', () => {
         user: createTestUser(),
       };
 
-      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken);
+      mockAuthCredentialsDb.findRefreshTokenByValueWithUser.mockResolvedValue(mockRefreshToken);
 
       // --- ACT & ASSERT ---
       await expect(service.refreshTokens('revoked-token')).rejects.toMatchObject({
@@ -290,7 +298,7 @@ describe('AuthService', () => {
         user: createTestUser(),
       };
 
-      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken);
+      mockAuthCredentialsDb.findRefreshTokenByValueWithUser.mockResolvedValue(mockRefreshToken);
 
       // --- ACT & ASSERT ---
       await expect(service.refreshTokens('expired-token')).rejects.toMatchObject({
@@ -311,18 +319,15 @@ describe('AuthService', () => {
 
       mockUsersDb.findById.mockResolvedValue(mockUser);
       mockUsersDb.updatePassword.mockResolvedValue({ ...mockUser });
-      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+      mockAuthCredentialsDb.revokeAllActiveRefreshTokensForUser.mockResolvedValue({ count: 2 });
 
       // --- ACT ---
       await service.changePassword(userId, dto);
 
       // --- ASSERT ---
       expect(mockUsersDb.updatePassword).toHaveBeenCalledWith(userId, expect.any(String));
-      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { userId, revokedAt: null },
-          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
-        }),
+      expect(mockAuthCredentialsDb.revokeAllActiveRefreshTokensForUser).toHaveBeenCalledWith(
+        userId,
       );
     });
 

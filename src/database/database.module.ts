@@ -3,6 +3,8 @@ import { PrismaModule } from '@database/prisma.module';
 import { DatabaseService } from '@database/database.service';
 import { UsersDbRepository } from '@database/users/users.db-repository';
 import { UsersDbService } from '@database/users/users.db-service';
+import { AuthCredentialsDbRepository } from '@database/auth-credentials/auth-credentials.db-repository';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 
 /**
  * Global database module. Aggregates every per-entity DbService + DbRepository
@@ -15,7 +17,13 @@ import { UsersDbService } from '@database/users/users.db-service';
 @Global()
 @Module({
   imports: [PrismaModule],
-  providers: [DatabaseService, UsersDbRepository, UsersDbService],
-  exports: [DatabaseService, UsersDbService],
+  providers: [
+    DatabaseService,
+    UsersDbRepository,
+    UsersDbService,
+    AuthCredentialsDbRepository,
+    AuthCredentialsDbService,
+  ],
+  exports: [DatabaseService, UsersDbService, AuthCredentialsDbService],
 })
 export class DatabaseModule {}

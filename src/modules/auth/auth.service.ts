@@ -4,8 +4,8 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserStatus } from '@prisma/client';
 import { AppConfigService } from '@config/config.service';
-import { PrismaService } from '@database/prisma.service';
 import { UsersDbService } from '@database/users/users.db-service';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { ErrorException } from '@errors/types/error-exception';
 import { AUT, DAT } from '@errors/error-codes';
 import { RegisterDto } from './dto/register.dto';
@@ -40,8 +40,8 @@ export class AuthService {
   constructor(
     private readonly config: AppConfigService,
     private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService,
     private readonly usersDb: UsersDbService,
+    private readonly authCredentialsDb: AuthCredentialsDbService,
   ) {}
 
   /**
@@ -135,10 +135,7 @@ export class AuthService {
    * @returns New token pair
    */
   async refreshTokens(token: string): Promise<TokenPair> {
-    const refreshToken = await this.prisma.refreshToken.findUnique({
-      where: { token },
-      include: { user: true },
-    });
+    const refreshToken = await this.authCredentialsDb.findRefreshTokenByValueWithUser(token);
 
     if (!refreshToken) {
       throw new ErrorException(AUT.TOKEN_INVALID);
@@ -153,10 +150,7 @@ export class AuthService {
     }
 
     // Revoke old token (rotation)
-    await this.prisma.refreshToken.update({
-      where: { id: refreshToken.id },
-      data: { revokedAt: new Date() },
-    });
+    await this.authCredentialsDb.revokeRefreshToken(refreshToken.id);
 
     return this.generateTokens((refreshToken as typeof refreshToken & { user: User }).user);
   }
@@ -185,10 +179,7 @@ export class AuthService {
     await this.usersDb.updatePassword(userId, newHash);
 
     // Revoke all refresh tokens for this user
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.authCredentialsDb.revokeAllActiveRefreshTokensForUser(userId);
   }
 
   /**
@@ -236,12 +227,10 @@ export class AuthService {
     const decoded = this.jwtService.decode(refreshToken) as { exp: number };
     const expiresAt = new Date(decoded.exp * 1000);
 
-    await this.prisma.refreshToken.create({
-      data: {
-        token: refreshToken,
-        userId: user.id,
-        expiresAt,
-      },
+    await this.authCredentialsDb.issueRefreshToken({
+      token: refreshToken,
+      userId: user.id,
+      expiresAt,
     });
 
     return { accessToken, refreshToken };

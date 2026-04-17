@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { ApiKey, ApiKeyStatus } from '@prisma/client';
-import { PrismaService } from '@database/prisma.service';
+import { ApiKey } from '@prisma/client';
+import { AuthCredentialsDbService } from '@database/auth-credentials/auth-credentials.db-service';
 import { API_KEY_PREFIX_LENGTH } from '@common/constants';
 import { ErrorException } from '@errors/types/error-exception';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
@@ -28,11 +28,10 @@ export interface CreateApiKeyResult {
  */
 @Injectable()
 export class ApiKeysService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly authCredentialsDb: AuthCredentialsDbService) {}
 
   /**
-   * Creates a new API key for a user.
-   * The raw key is returned once in the response and is never stored.
+   * Creates a new API key for a user. The raw key is returned once and never stored.
    *
    * @param userId - The owning user's UUID
    * @param dto - Key creation parameters
@@ -43,15 +42,11 @@ export class ApiKeysService {
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
     const prefix = rawKey.slice(0, API_KEY_PREFIX_LENGTH);
 
-    const apiKey = await this.prisma.apiKey.create({
-      data: {
-        name: dto.name,
-        keyHash,
-        prefix,
-        userId,
-        status: ApiKeyStatus.ACTIVE,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-      },
+    const apiKey = await this.authCredentialsDb.createApiKey(userId, {
+      name: dto.name,
+      keyHash,
+      prefix,
+      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
     });
 
     return {
@@ -70,21 +65,7 @@ export class ApiKeysService {
    * @returns Array of API key metadata
    */
   async findAll(userId: string): Promise<ApiKeyListItem[]> {
-    const keys = await this.prisma.apiKey.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        name: true,
-        prefix: true,
-        status: true,
-        lastUsedAt: true,
-        expiresAt: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return keys;
+    return this.authCredentialsDb.findApiKeysByUserId(userId);
   }
 
   /**
@@ -92,19 +73,13 @@ export class ApiKeysService {
    *
    * @param userId - The owning user's UUID
    * @param keyId - The API key's UUID
+   * @throws {ErrorException} when the key is not found for this user
    */
   async revoke(userId: string, keyId: string): Promise<void> {
-    const apiKey = await this.prisma.apiKey.findFirst({
-      where: { id: keyId, userId },
-    });
-
+    const apiKey = await this.authCredentialsDb.findApiKeyByIdForUser(userId, keyId);
     if (!apiKey) {
       throw ErrorException.notFound('ApiKey', keyId);
     }
-
-    await this.prisma.apiKey.update({
-      where: { id: keyId },
-      data: { status: ApiKeyStatus.REVOKED },
-    });
+    await this.authCredentialsDb.revokeApiKey(keyId);
   }
 }
