@@ -45,6 +45,7 @@ import { AppModule } from '../../src/app.module';
 import { AppLogger } from '../../src/logger/logger.service';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { TransformInterceptor } from '../../src/common/interceptors/transform.interceptor';
+import { TraceEnrichmentInterceptor } from '../../src/telemetry/interceptors/trace-enrichment.interceptor';
 import { TweetsDbService } from '../../src/database/tweets/tweets.db-service';
 
 const DATABASE_URL =
@@ -112,7 +113,10 @@ describe('observability e2e', () => {
     app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
     app.useGlobalFilters(app.get(AllExceptionsFilter));
-    app.useGlobalInterceptors(new TransformInterceptor());
+    // Match `main.ts`: TraceEnrichment must run BEFORE Transform so the span
+    // name / `http.route` attr land in time for assertions. WP2-10 tests
+    // depend on this.
+    app.useGlobalInterceptors(new TraceEnrichmentInterceptor(), new TransformInterceptor());
 
     // Listen on an ephemeral port so the real http.Server path (patched by
     // @opentelemetry/instrumentation-http at sdk.start() time) is exercised.
@@ -305,9 +309,9 @@ describe('observability e2e', () => {
     }
   });
 
-  // ─── 5. 4xx response: HTTP span status stays UNSET ──────────────────────────
+  // ─── 5. 4xx response: HTTP span is highlighted as ERROR with error.class=4xx ─
 
-  it('does not mark the HTTP span ERROR for 4xx (unauthenticated)', async () => {
+  it('highlights 401 errors with status=ERROR, error=true, error.class=4xx', async () => {
     // Act — missing x-user-id yields 401 AUT0001
     await request(app.getHttpServer()).get('/api/v1/timeline').expect(401);
     const spans = exporter.getFinishedSpans();
@@ -317,12 +321,16 @@ describe('observability e2e', () => {
     expect(http).toBeDefined();
     if (!http) return;
 
-    // Status stays UNSET per OTel HTTP semconv — a rejected client request is
-    // not a server fault. The exception event IS still there, which is how
-    // the error surfaces in Tempo without polluting the success rate.
-    expect(http.status.code).not.toBe(SpanStatusCode.ERROR);
-    expect(spanStatusName(http)).not.toBe('ERROR');
+    // Plan-2 deviation from strict HTTP semconv: we DO mark 4xx as ERROR so
+    // Tempo's incident-colouring surfaces rejected requests. Dashboards still
+    // split client- from server-faults via the cardinality-safe `error.class`
+    // attribute. See `docs/guides/FOR-Observability.md` § "Error highlighting".
+    expect(http.status.code).toBe(SpanStatusCode.ERROR);
+    expect(spanStatusName(http)).toBe('ERROR');
+    expect(http.attributes['error']).toBe(true);
+    expect(http.attributes['error.class']).toBe('4xx');
 
+    // Regression guard — exception event still present and annotated.
     const eventNames = http.events.map(e => e.name);
     expect(eventNames).toContain('exception');
   });
@@ -380,5 +388,162 @@ describe('observability e2e', () => {
     const [traceId] = [...traceIds];
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
     expect(traceId).not.toBe('0'.repeat(32));
+  });
+
+  // ─── 8. Span rename — METHOD route on successful request (WP2-10) ────────────
+
+  itIfDb('names the HTTP span METHOD + normalised route on successful request', async () => {
+    // Arrange
+    const headers = { 'x-user-id': userId };
+
+    // Act — POST /api/v1/tweets is the canonical authenticated route. With the
+    // TraceEnrichmentInterceptor wired in beforeAll, `http.route` lands on the
+    // HTTP server span and `span.updateName()` flips the name to
+    // `METHOD route`. For cardinality safety the `:id` placeholder only kicks
+    // in if the matched route has a param — POST /tweets does not, so the
+    // asserted form here is parameter-free.
+    await request(app.getHttpServer())
+      .post('/api/v1/tweets')
+      .set(headers)
+      .send({ content: 'obs rename', visibility: 'COMPANY' })
+      .expect(201);
+    const spans = exporter.getFinishedSpans();
+
+    // Assert — the server span exists and carries the canonical name shape.
+    const http = findHttpServerSpan(spans);
+    expect(http).toBeDefined();
+    if (!http) return;
+
+    // Accept either `POST /api/v1/tweets` (the minimum plan-2 guarantee) or a
+    // routing variant that resolved to `:id` (defensive for future routes).
+    expect(http.name).toMatch(/^POST\s\/api\/v1\/tweets(?:\/:[a-zA-Z_]+)?$/);
+    // `http.route` attribute is set (semconv) — dashboards rely on this key.
+    expect(http.attributes['http.route']).toBeDefined();
+  });
+
+  // ─── 9. Body capture on 500 errors (WP2-10) ──────────────────────────────────
+
+  itIfDb('captures request body redacted on 500 errors', async () => {
+    // Arrange — force a 500 by stubbing out the DB call. The payload contains
+    // both a registry-path field (`password`) and a free-form field
+    // (`content`) that shouldn't leak PII.
+    const tweetsDb = app.get(TweetsDbService);
+    const boom = new Error('synthetic internal failure');
+    const spy = jest.spyOn(tweetsDb, 'createWithTargets').mockRejectedValueOnce(boom);
+
+    try {
+      // Act — body carries both the payload and a `password` key that must be
+      // redacted out before it ever reaches the span attribute.
+      await request(app.getHttpServer())
+        .post('/api/v1/tweets')
+        .set({ 'x-user-id': userId })
+        .send({
+          content: 'should be captured',
+          visibility: 'COMPANY',
+          email: 'leak-attempt@example.com',
+          password: 'do-not-log-me',
+        })
+        .expect(500);
+
+      const spans = exporter.getFinishedSpans();
+      const http = findHttpServerSpan(spans);
+      expect(http).toBeDefined();
+      if (!http) return;
+
+      // Assert — the body-capture attribute is present and the field NAMES are
+      // in it (so operators can tell what the caller sent) but the VALUES of
+      // credentials/contact fields are masked.
+      const bodyAttr = http.attributes['http.request.body_redacted'];
+      expect(typeof bodyAttr).toBe('string');
+      const body = String(bodyAttr);
+      expect(body).toContain('password');
+      expect(body).not.toContain('do-not-log-me');
+      expect(body).not.toContain('leak-attempt@example.com');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ─── 10. FilteringSpanExporter hygiene — no `middleware - <anonymous>` ──────
+
+  itIfDb('drops middleware - <anonymous> spans at export', async () => {
+    // Act — any request will do; we just need the span set.
+    await request(app.getHttpServer())
+      .get('/api/v1/timeline')
+      .set({ 'x-user-id': userId })
+      .expect(200);
+    const spans = exporter.getFinishedSpans();
+
+    // Assert — regardless of whether the router instrumentation would have
+    // emitted anonymous middleware spans in this setup, no such span must
+    // make it to the exporter. Named middleware spans (e.g. `helmetMiddleware`)
+    // are fine; the drop predicate specifically targets the anonymous variant.
+    for (const span of spans) {
+      expect(span.name.startsWith('middleware - <anonymous>')).toBe(false);
+    }
+  });
+
+  // ─── 11. Exactly one exception event per failed request (WP2-10) ─────────────
+
+  itIfDb('records exactly one exception event on HTTP server span per failed request', async () => {
+    // Arrange — force a 500, same pattern as the existing 500 test.
+    const tweetsDb = app.get(TweetsDbService);
+    const boom = new Error('synthetic internal failure');
+    const spy = jest.spyOn(tweetsDb, 'findTimelineForUser').mockRejectedValueOnce(boom);
+
+    try {
+      // Act
+      await request(app.getHttpServer())
+        .get('/api/v1/timeline')
+        .set({ 'x-user-id': userId })
+        .expect(500);
+
+      const spans = exporter.getFinishedSpans();
+      const http = findHttpServerSpan(spans);
+      expect(http).toBeDefined();
+      if (!http) return;
+
+      // Assert — regression guard against duplicate exception events. The
+      // filter is the single authoritative recorder for the HTTP span;
+      // `exception.cause.N` events are permitted, but the top-level
+      // `exception` event must appear exactly once.
+      const exceptionEvents = http.events.filter(e => e.name === 'exception');
+      expect(exceptionEvents).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ─── 12. Route fallback via normalisePath when middleware throws (WP2-10) ────
+
+  it('populates http.route via normalised fallback when middleware throws pre-routing', async () => {
+    // Act — no `x-user-id` header so MockAuthMiddleware throws BEFORE the Nest
+    // router resolves a controller. At filter time, `req.route?.path` is
+    // undefined; the fallback path calls `normalisePath(originalUrl)`.
+    await request(app.getHttpServer()).get('/api/v1/timeline').expect(401);
+    const spans = exporter.getFinishedSpans();
+
+    // Assert — the HTTP span still carries an `http.route` attribute
+    // populated by the filter's fallback. Static paths pass through
+    // unchanged; what matters is that it's NOT missing.
+    const http = findHttpServerSpan(spans);
+    expect(http).toBeDefined();
+    if (!http) return;
+
+    const route = http.attributes['http.route'];
+    expect(route).toBeDefined();
+    expect(typeof route).toBe('string');
+    expect(String(route).length).toBeGreaterThan(0);
+    // The exact value depends on which handler ran:
+    //  - If the Express router resolved the catch-all before the filter ran
+    //    (NestJS registers `/api/*splat` as a fallback), we see that pattern
+    //    — still cardinality-safe, never leaks raw ids.
+    //  - If the filter fell through to the `normalisePath(originalUrl)`
+    //    branch, the path `/api/v1/timeline` comes back unchanged.
+    // Either way, `:id`/`:hash` placeholders must be applied to id-shaped
+    // segments, and NO raw UUIDs / numeric ids / hashes may leak through.
+    const routeStr = String(route);
+    expect(routeStr).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    expect(routeStr).toMatch(/^\/api(?:[\/*:a-zA-Z0-9_-]+)?$/);
   });
 });
