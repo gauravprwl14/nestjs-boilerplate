@@ -177,7 +177,7 @@ Each event carries OTel-standard attributes: `exception.type`, `exception.messag
 
 When the root error is an `ErrorException`, it also sets `error.*` span attributes (`error.code`, `error.type`, `error.category`, `error.severity`, `error.user_facing`, `error.retryable`, `error.cause_depth`). For non-`ErrorException`, only `error.cause_depth` is set.
 
-Span status defaults to ERROR; pass `setStatus: false` to skip (used by the HTTP filter for 4xx — see below).
+Span status defaults to ERROR; pass `setStatus: false` to skip.
 
 The `redactString` option is applied to both `exception.message` and `exception.stacktrace` before they hit the span. When omitted, the module-level default registered via `setDefaultRedactString` is used (populated at app bootstrap from `RedactorService.redactString`).
 
@@ -185,14 +185,121 @@ The `redactString` option is applied to both `exception.message` and `exception.
 
 Exactly one layer records per span. This prevents the duplicate-event storm that the plan called out as a pre-fix defect.
 
-| Layer                                    | What it records on which span                                                             | Sets status                           |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------- |
-| `@Trace` decorator (child span)          | `recordExceptionOnSpan(err, { span: child, setStatus: true })`                            | ERROR (unconditional)                 |
-| `AllExceptionsFilter` (HTTP server span) | `recordExceptionOnSpan(err, { span: active, setStatus: status >= 500, redactString: … })` | ERROR **only** for 5xx (HTTP semconv) |
-| `logger.logError()`                      | `recordExceptionOnSpan(err, { redactString: … })` on the active span                      | ERROR (set by the recorder)           |
-| `LoggingInterceptor`                     | Logs only — does NOT touch spans                                                          | no                                    |
+| Layer                                    | What it records on which span                                                    | Sets status                 |
+| ---------------------------------------- | -------------------------------------------------------------------------------- | --------------------------- |
+| `@Trace` decorator (child span)          | `recordExceptionOnSpan(err, { span: child, setStatus: true })`                   | ERROR (unconditional)       |
+| `AllExceptionsFilter` (HTTP server span) | `recordExceptionOnSpan(err, { span: active, setStatus: true, redactString: … })` | ERROR (unconditional)       |
+| `logger.logError()`                      | `recordExceptionOnSpan(err, { redactString: … })` on the active span             | ERROR (set by the recorder) |
+| `LoggingInterceptor`                     | Logs only — does NOT touch spans                                                 | no                          |
 
-4xx responses (e.g. unauthenticated, validation) keep the HTTP span status UNSET. The `exception` event is still emitted, so Tempo surfaces the error; the span status is reserved for server faults (5xx). The e2e suite asserts this directly.
+As of plan-2 (WP2-3) ALL caught exceptions set `status = ERROR` on the HTTP server span — see [§ 5.5](#55-error-highlighting-in-tempo-deviation-from-http-semconv) for the rationale and the operator-friendly attributes that accompany the flip. The e2e suite asserts both 4xx and 5xx reach ERROR status.
+
+### 5.4 Route naming & cardinality
+
+Every HTTP server span gets renamed to `METHOD route-template` with `:id` / `:hash` placeholders. This keeps Tempo span search human-readable and keeps any metric derived from `http.route` cardinality-safe.
+
+- **Rename mechanism.** `TraceEnrichmentInterceptor` (`src/telemetry/interceptors/trace-enrichment.interceptor.ts`) runs after Nest resolves the controller. It reads `request.route?.path` — the Express-matched route pattern — and writes it to the active span via `span.setAttribute(ATTR_HTTP_ROUTE, route)` + `span.updateName(`${method} ${route}`)`. `ATTR_URL_PATH` carries the raw (unresolved) path for debugging.
+- **Pre-router fallback.** If a middleware throws before the router matches (so `req.route.path` is undefined), `AllExceptionsFilter.resolveRoute` calls `normalisePath(originalUrl)` from `src/telemetry/utils/path-normalizer.ts`. Rule-based segment replacement keeps raw ids out of `http.route`:
+
+| Rule     | Pattern                                                                   | Placeholder |
+| -------- | ------------------------------------------------------------------------- | ----------- |
+| UUID     | `[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}` | `:id`       |
+| ULID     | Crockford base32 × 26 chars                                               | `:id`       |
+| ObjectId | `[0-9a-f]{24}`                                                            | `:id`       |
+| numeric  | `\d+`                                                                     | `:id`       |
+| hash     | `[0-9a-f]{32,}` (sha256 / sha1 fingerprint)                               | `:hash`     |
+
+Rules are precedence-ordered; the first match wins per segment. To add a rule, edit `DEFAULT_RULES` in `path-normalizer.ts` and pick a precedence that lets the new rule fire before its fallback (e.g. a tenant-specific slug should sit above the hash rule). The plan deliberately skipped per-host rule groups until we have ≥ 3 external hosts to worry about.
+
+`http.route` vs `url.path`:
+
+- `http.route`: cardinality-safe, dashboard / alert-ready. Use this in TraceQL / PromQL groupings.
+- `url.path`: the raw URL. Use only in per-trace debugging; never group on it.
+
+### 5.5 Error highlighting in Tempo (deviation from HTTP semconv)
+
+Strict OpenTelemetry HTTP semconv reserves `status.code = ERROR` for 5xx responses only. We deliberately deviate: **every caught exception sets `status = ERROR`** on the HTTP server span, regardless of whether it's 4xx or 5xx. See WP2-3 of `docs/plans/plan-2-observability-debuggability.md` for the full rationale. In short:
+
+- Tempo's incident-feed views colour rows by `status.code`. Under strict semconv a 401 / 400 / 409 response stays green (UNSET) and blends into the success rate. Operators miss broken clients for hours.
+- Operator visibility on rejected requests is more valuable than strict semconv adherence. Every exception we surface to a caller is worth highlighting.
+
+To restore splitting server- from client-faults:
+
+- `error = true` (scalar) — cardinality-safe "did this request fault at all?" flag.
+- `error.class = "4xx" | "5xx"` — cardinality-safe split. Two values; safe to `group_by` in every query engine.
+- `http.status_code` — use this for SLO queries (`http.status_code >= 500`), NOT `status.code`.
+
+Dashboards that need to filter for "real" server faults should query `http.status_code >= 500` or `error.class = "5xx"`; queries that want anything-that-went-wrong use `status.code = ERROR` or `error = true`.
+
+### 5.6 Request / response context on error spans
+
+When an exception reaches `AllExceptionsFilter`, we capture the caller's request alongside the exception event so operators can tell what was actually sent. The capture is redacted, bounded, and rate-limited — see `src/telemetry/utils/body-capture.ts`.
+
+Attributes set on the HTTP server span (only on the error path):
+
+| Attribute                       | Contents                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `http.request.body_redacted`    | Registry-redacted, free-form-scrubbed JSON of `req.body`. Up to 1 KB.            |
+| `http.request.headers_redacted` | Same, for `req.headers`. Authorization / cookies / CSRF tokens always masked.    |
+| `http.request.query_redacted`   | Same, for `req.query`.                                                           |
+| `http.response.body_redacted`   | The filter's own `ApiErrorResponse` (already built) after redaction. Up to 1 KB. |
+
+Safety rails:
+
+- **Per-field cap: 1 KB**, **total across all four fields: 8 KB** per span. Oversize fields are truncated with a `…[truncated]` sentinel.
+- **Token-bucket rate limit: 50 tokens, 50/sec refill.** If the bucket is empty, `captureRequestContext` returns `{ requestBody: '[rate-limited]', requestHeaders: '[rate-limited]' }` so a burst of failures cannot blow up span export.
+- **Content-type skiplist.** Binary payloads (`multipart/*`, `image/*`, `video/*`, `application/pdf`, `application/zip`, `application/octet-stream`) emit `[skipped content-type: …]` instead of their bytes.
+- **Body-parser sentinel.** When `req.body === undefined` (e.g. body-parser hadn't run yet — a middleware error path), the attribute carries `[body not parsed — middleware error]` so debuggers know why the payload is absent.
+- **`structuredClone` guard.** Inputs are cloned before redaction so the caller's request object is never mutated.
+
+Tuning caps is a one-line edit in `body-capture.ts` (`PER_FIELD_CAP_BYTES`, `TOTAL_CAP_BYTES`, `TOKEN_BUCKET_CAPACITY`, `TOKEN_REFILL_PER_SEC`). Before raising them, weigh your span-size budget in the collector; error spans are rare but Tempo ingests every byte.
+
+### 5.7 Outbound HTTP debugging (two-tier)
+
+Outbound calls are instrumented by `@opentelemetry/instrumentation-http`. We layer two debug tiers on top:
+
+**Tier 1 — automatic, no caller opt-in.** `src/telemetry/hooks/outbound-http.hooks.ts` installs `requestHook` + `responseHook` overlays on the HTTP instrumentation.
+
+- Request headers: allowlisted; unknown headers mapped to `[REDACTED]`. Stamped as `http.client.request.headers_redacted`.
+- Response headers: captured **only on `statusCode >= 400`** (fast-path reject on success to cap span size). Stamped as `http.client.response.headers_redacted`. Same allowlist rules.
+- Response body: **deliberately not captured** — a stream tee risks breaking other consumers of the response body. Use tier 2 when the body matters.
+- Outbound traffic to the OTel collector endpoint and any request made inside `withSuppressed(...)` is ignored entirely to prevent feedback loops.
+
+**Tier 2 — opt-in per call.** `src/common/http-client/traced-http-client.ts` exposes `TracedHttpClient.request<T>({ url, method, body?, captureBodyOnError?, timeoutMs? })`. It fully buffers the remote response, and on non-2xx reads the body (capped + redacted) onto the span as `http.client.response.body_redacted` before throwing `ErrorException(SRV.EXTERNAL_API_ERROR, { cause })`. Use this when you need the remote JSON error body (e.g. `{ error: "invalid_signature" }` from Stripe); skip it when the headers are enough.
+
+**Debug workflow for an outbound failure:**
+
+1. Open the failing trace in Tempo — the red `POST /api/v1/your-route` row.
+2. Click the HTTP-client child span (it'll be red too if the outbound hit status ≥ 400).
+3. Read the span attributes: `http.status_code`, `http.client.response.headers_redacted` (rate-limit, retry-after, www-authenticate scheme).
+4. If the call went through `TracedHttpClient`, also read `http.client.response.body_redacted` for the remote JSON error.
+5. If the call didn't, the exception event still carries the cause chain (`exception.cause.1.attributes.exception.type`) — that's usually enough to tell whether it was a 5xx vs a DNS timeout vs an abort.
+
+### 5.8 Filtering span exporter
+
+`FilteringSpanExporter` (`src/telemetry/exporters/filtering-span-exporter.ts`) wraps the OTLP trace exporter and drops spans matching any of `DEFAULT_DROP_PREDICATES` before they leave the process.
+
+The current drop list targets `middleware - <anonymous>` — a span emitted by `@opentelemetry/instrumentation-router` whenever NestJS's internal Express adapters are wrapped. The span carries no useful attributes and adds pure visual noise in Tempo.
+
+The wrapper is fail-open: if a predicate throws, the span is kept (we'd rather over-export than silently drop telemetry on a buggy rule). Predicates also never run inside the hot request path — the drop happens at export time, not in `SpanProcessor.onEnd`, because the processor contract doesn't support suppression.
+
+To add a new drop predicate, append to `DEFAULT_DROP_PREDICATES` in `filtering-span-exporter.ts`. Each predicate takes a `ReadableSpan` and returns `true` to drop.
+
+### 5.9 Suppression for internal operations
+
+`src/telemetry/utils/suppress-tracing.ts` exposes `withSuppressed(fn)`:
+
+```typescript
+import { withSuppressed } from '@telemetry/utils/suppress-tracing';
+
+await withSuppressed(async () => {
+  // fetch / network call / internal instrumentation work
+});
+```
+
+While inside the scope, the outbound-http hooks skip their capture entirely (both the `ignoreOutgoingRequestHook` and both header hooks short-circuit on `isSuppressed()`). The primary use case is the outbound hooks skipping calls to the OTel collector endpoint itself — without this guard the exporter would span-ify its own outbound requests and feedback-loop telemetry back onto itself.
+
+Use `withSuppressed` for any library call that internally emits telemetry you don't want to see — sparingly, because suppressed spans lose a full debug surface.
 
 ---
 
@@ -397,9 +504,14 @@ The authoritative programmatic check is `test/e2e/observability.e2e-spec.ts`. It
 2. **Span hierarchy for POST** (`/api/v1/tweets`) — controller → service → DB service → `DatabaseService` chain, one `traceId`.
 3. **Prisma P2002 cause chain** — simulated unique-constraint error produces `exception` + `exception.cause.1` on the HTTP span; `cause.1.attributes['exception.code'] === 'P2002'`; `error.code === 'DAT0003'`; `error.cause_depth >= 2`.
 4. **PII redaction** — request carrying email, password, and a JWT-shaped token produces zero spans containing any of those substrings (checked against every span attribute and every event attribute).
-5. **4xx does NOT set ERROR status** — unauthenticated request keeps span status UNSET, but the `exception` event IS emitted.
-6. **5xx DOES set ERROR status** — forced internal failure sets status ERROR and emits the `exception` event.
+5. **4xx IS highlighted as ERROR** — 401 sets `status.code = ERROR`, `error = true`, `error.class = '4xx'` (plan-2 deviation from strict HTTP semconv — see [§ 5.5](#55-error-highlighting-in-tempo-deviation-from-http-semconv)).
+6. **5xx sets ERROR status** — forced internal failure also sets `error.class = '5xx'` and emits the `exception` event.
 7. **Single `traceId` per request** — one id covers the whole hierarchy; pivoting from a Loki log line to Tempo lands on the same trace.
+8. **Span rename** — successful `POST /api/v1/tweets` ends up named `POST /api/v1/tweets` (from the `TraceEnrichmentInterceptor`) rather than the instrumentation default.
+9. **Body capture on 500** — `http.request.body_redacted` present with field names preserved but `password` / `email` values masked.
+10. **FilteringSpanExporter hygiene** — no span named `middleware - <anonymous>` leaves the exporter.
+11. **Exactly-one exception event on HTTP span** — regression guard against duplicate recorders.
+12. **Route fallback** — middleware-threw-pre-routing requests still populate `http.route` (either via the Express catch-all or the `normalisePath` fallback), never raw ids.
 
 Unit-level coverage lives next to each util:
 

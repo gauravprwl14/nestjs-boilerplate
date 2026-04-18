@@ -86,6 +86,8 @@ test/
 | Add a new PII field to redaction                    | `docs/guides/FOR-Observability.md` (§ 7 PII redaction), `src/common/redaction/pii-registry.ts`                                     |
 | Record an exception on a span                       | `docs/guides/FOR-Observability.md` (§ 5.2–5.3 recording exceptions), `src/telemetry/utils/record-exception.util.ts`                |
 | Apply `@Trace` / `@InstrumentClass` on new code     | `docs/guides/FOR-Observability.md` (§ 4 quick start, § 5 tracing), `src/telemetry/decorators/`                                     |
+| Debug an outbound API failure                       | `docs/guides/FOR-Observability.md` (§ 5.7 Outbound HTTP), `src/common/http-client/traced-http-client.ts`                           |
+| Tune request-body capture or redaction caps         | `docs/guides/FOR-Observability.md` (§ 5.6 Request/response context), `src/telemetry/utils/body-capture.ts`                         |
 | Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                          |
 | Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                         |
 | Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                        |
