@@ -19,6 +19,8 @@ import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { FilteringSpanExporter } from './exporters/filtering-span-exporter';
+import { buildOutboundHooks } from './hooks/outbound-http.hooks';
+import { RedactorService } from '@common/redaction/redactor.service';
 import {
   OTEL_DEFAULT_GRPC_ENDPOINT,
   OTEL_IGNORE_PATHS,
@@ -97,6 +99,15 @@ export function initOtelSdk(config: OtelConfig): void {
             const url = req.url ?? '';
             return OTEL_IGNORE_PATHS.some(pattern => pattern.test(url));
           },
+          // Outbound HTTP hooks: redacted headers on request + error
+          // responses, suppressTracing-aware, exporter-host ignored to
+          // avoid feedback loops. `RedactorService` has no DI deps so
+          // we can instantiate it standalone at SDK bootstrap time
+          // (see src/common/redaction/redactor.service.ts).
+          ...buildOutboundHooks({
+            redactor: new RedactorService(),
+            exporterUrl: endpoint,
+          }),
         },
         // Disable noisy fs instrumentation
         '@opentelemetry/instrumentation-fs': {
