@@ -20,6 +20,7 @@ import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 import { RedactorService } from '@common/redaction/redactor.service';
 import { recordExceptionOnSpan } from '@telemetry/utils/record-exception.util';
 import { normalisePath } from '@telemetry/utils/path-normalizer';
+import { captureRequestContext } from '@telemetry/utils/body-capture';
 
 /**
  * Global exception filter that catches all unhandled exceptions and converts
@@ -53,6 +54,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Normalise the exception to an ErrorException
     const error = this.normalise(exception);
 
+    // Build the response body BEFORE the span-attribute phase so we can feed
+    // it to `captureRequestContext` as `responseBody`. The same object is
+    // sent down the wire below.
+    const includeChain = !this.config.isProduction;
+    const body: ApiErrorResponse = {
+      success: false,
+      errors: [error.toResponse(includeChain)],
+      requestId: requestId || undefined,
+      traceId: traceId || undefined,
+      timestamp: new Date().toISOString(),
+    };
+
     // Attribute the error to the active HTTP server span so the trace carries
     // the failure. The filter is the single authoritative HTTP-span recorder:
     // `recordExceptionOnSpan` emits exactly one `exception` event (plus
@@ -65,6 +78,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // cardinality-safe `error.class` attribute (`'4xx'` | `'5xx'`) so
     // dashboards can still split legitimate client faults from server faults.
     if (span) {
+      // Body / headers / query capture — redacted, capped, rate-limited.
+      // `captureRequestContext` never throws; on any internal error it
+      // returns `{}` and no attributes are set. Run this BEFORE
+      // `recordExceptionOnSpan` so captures accompany the exception event.
+      const captured = captureRequestContext({
+        request,
+        responseBody: body,
+        redactor: this.redactor,
+      });
+      if (captured.requestBody)
+        span.setAttribute('http.request.body_redacted', captured.requestBody);
+      if (captured.requestHeaders)
+        span.setAttribute('http.request.headers_redacted', captured.requestHeaders);
+      if (captured.requestQuery)
+        span.setAttribute('http.request.query_redacted', captured.requestQuery);
+      if (captured.responseBody)
+        span.setAttribute('http.response.body_redacted', captured.responseBody);
+
       recordExceptionOnSpan(error, {
         span,
         setStatus: true,
@@ -106,16 +137,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
     }
 
-    // ErrorException builds its own response — filter is thin
-    const includeChain = !this.config.isProduction;
-    const body: ApiErrorResponse = {
-      success: false,
-      errors: [error.toResponse(includeChain)],
-      requestId: requestId || undefined,
-      traceId: traceId || undefined,
-      timestamp: new Date().toISOString(),
-    };
-
+    // `body` was built above (before the span-attribute phase) so capture could
+    // reference it — ErrorException builds its own response shape; the filter
+    // just wraps it in the standard envelope.
     response.status(error.statusCode).json(body);
   }
 

@@ -459,6 +459,91 @@ describe('AllExceptionsFilter', () => {
       expect(typeof body.timestamp).toBe('string');
     });
 
+    it('captures http.request.body_redacted on 500 with password redacted', () => {
+      // --- ARRANGE --- 5xx request carrying a nested password that must be
+      // masked before appearing on the span attribute.
+      const err = new ErrorException(SRV.INTERNAL_ERROR);
+      const { host } = buildHost({
+        method: 'POST',
+        url: '/api/v1/users',
+        body: { name: 'Alice', credentials: { password: 'hunter2' } },
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      const captured = span.attributes['http.request.body_redacted'] as string | undefined;
+      expect(captured).toBeDefined();
+      expect(captured).toContain('Alice');
+      expect(captured).toContain('[REDACTED]');
+      expect(captured).not.toContain('hunter2');
+    });
+
+    it('captures http.request.headers_redacted with authorization redacted', () => {
+      // --- ARRANGE ---
+      const err = new ErrorException(AUT.UNAUTHENTICATED);
+      const { host } = buildHost({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: {
+          authorization: 'Bearer super.secret.token',
+          'content-type': 'application/json',
+        },
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      const captured = span.attributes['http.request.headers_redacted'] as string | undefined;
+      expect(captured).toBeDefined();
+      expect(captured).toContain('[REDACTED]');
+      expect(captured).not.toContain('super.secret.token');
+      expect(captured).toContain('application/json');
+    });
+
+    it('emits the "[body not parsed …]" sentinel on middleware-error 401', () => {
+      // --- ARRANGE --- the auth middleware threw BEFORE body-parser ran;
+      // `request.body` is therefore undefined.
+      const err = new ErrorException(AUT.UNAUTHENTICATED);
+      const { host } = buildHost({
+        method: 'POST',
+        url: '/api/v1/tweets',
+        body: undefined,
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      const captured = span.attributes['http.request.body_redacted'] as string | undefined;
+      expect(captured).toBe('[body not parsed — middleware error]');
+    });
+
+    it('does not set body-capture attributes when the filter is never invoked (success path)', () => {
+      // --- ARRANGE --- model a successful request: a span runs to completion
+      // without ever calling `filter.catch`. No body-capture attributes should
+      // appear on the span — they are strictly an error-path feature.
+      const { host } = buildHost({
+        method: 'GET',
+        url: '/api/v1/healthy',
+        body: { password: 'hunter2' }, // would normally trigger capture
+      });
+      void host; // unused — the request is referenced only to set up context
+
+      // --- ACT --- execute a span WITHOUT calling the filter.
+      const span = runInSpan(() => {
+        /* no-op controller handler */
+      });
+
+      // --- ASSERT --- none of the body-capture attributes are present.
+      expect(span.attributes['http.request.body_redacted']).toBeUndefined();
+      expect(span.attributes['http.request.headers_redacted']).toBeUndefined();
+      expect(span.attributes['http.request.query_redacted']).toBeUndefined();
+      expect(span.attributes['http.response.body_redacted']).toBeUndefined();
+    });
+
     it('does not call logger.logError with span-recording enabled for 5xx', () => {
       // --- ARRANGE --- 5xx path still logs, but must opt out of span recording
       // because the filter already records exceptions on the span.
