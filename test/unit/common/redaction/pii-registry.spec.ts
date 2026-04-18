@@ -1,4 +1,4 @@
-import { DEFAULT_PII_PATHS, PII_CATEGORIES, PII_PATH_GROUPS } from './pii-registry';
+import { DEFAULT_PII_PATHS, PII_CATEGORIES, PII_PATH_GROUPS } from '@common/redaction/pii-registry';
 
 describe('PII registry', () => {
   it('exposes at least one credential and one identifier path', () => {

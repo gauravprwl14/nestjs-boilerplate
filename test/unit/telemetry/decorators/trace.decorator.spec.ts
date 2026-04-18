@@ -6,8 +6,8 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 
-import { setDefaultRedactString } from '../utils/record-exception.util';
-import { Trace } from './trace.decorator';
+import { setDefaultRedactString } from '@telemetry/utils/record-exception.util';
+import { Trace } from '@telemetry/decorators/trace.decorator';
 
 // ─── Test fixture ─────────────────────────────────────────────────────────
 const contextManager = new AsyncLocalStorageContextManager();

@@ -1,4 +1,4 @@
-import { __resetAllowPIIAudit, shouldAuditAllowPII } from './allow-pii.util';
+import { __resetAllowPIIAudit, shouldAuditAllowPII } from '@common/redaction/allow-pii.util';
 
 describe('shouldAuditAllowPII', () => {
   beforeEach(() => {

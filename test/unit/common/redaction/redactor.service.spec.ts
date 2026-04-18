@@ -1,5 +1,8 @@
-import { REDACTION_CENSOR, REDACTION_MAX_STRING_LENGTH } from './redaction.constants';
-import { RedactorService } from './redactor.service';
+import {
+  REDACTION_CENSOR,
+  REDACTION_MAX_STRING_LENGTH,
+} from '@common/redaction/redaction.constants';
+import { RedactorService } from '@common/redaction/redactor.service';
 
 describe('RedactorService', () => {
   describe('redactObject', () => {

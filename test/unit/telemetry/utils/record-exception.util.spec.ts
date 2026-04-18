@@ -10,7 +10,10 @@ import {
 import { DAT } from '@errors/error-codes/database.errors';
 import { ErrorException } from '@errors/types/error-exception';
 
-import { recordExceptionOnSpan, setDefaultRedactString } from './record-exception.util';
+import {
+  recordExceptionOnSpan,
+  setDefaultRedactString,
+} from '@telemetry/utils/record-exception.util';
 
 // ─── Test fixture ─────────────────────────────────────────────────────────
 const contextManager = new AsyncLocalStorageContextManager();

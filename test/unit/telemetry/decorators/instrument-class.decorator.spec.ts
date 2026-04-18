@@ -6,7 +6,7 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 
-import { InstrumentClass } from './instrument-class.decorator';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 // ─── Test fixture ─────────────────────────────────────────────────────────
 const contextManager = new AsyncLocalStorageContextManager();

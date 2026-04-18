@@ -29,7 +29,7 @@ import { ErrorException } from '@errors/types/error-exception';
 import { RedactorService } from '@common/redaction/redactor.service';
 import { __resetAllowPIIAudit } from '@common/redaction/allow-pii.util';
 
-import { AppLogger } from './logger.service';
+import { AppLogger } from '@logger/logger.service';
 
 // ─── Test fixture ─────────────────────────────────────────────────────────
 const contextManager = new AsyncLocalStorageContextManager();

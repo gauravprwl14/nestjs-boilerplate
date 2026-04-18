@@ -1,7 +1,7 @@
 import { DAT } from '@errors/error-codes/database.errors';
 import { ErrorException } from '@errors/types/error-exception';
 
-import { serialiseErrorChain } from './cause-chain.util';
+import { serialiseErrorChain } from '@errors/utils/cause-chain.util';
 
 describe('serialiseErrorChain', () => {
   describe('single-level errors', () => {

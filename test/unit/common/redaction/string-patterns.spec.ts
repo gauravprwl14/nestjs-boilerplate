@@ -1,4 +1,4 @@
-import { PII_STRING_PATTERNS } from './string-patterns';
+import { PII_STRING_PATTERNS } from '@common/redaction/string-patterns';
 
 /**
  * Helper that applies every pattern in order, mirroring the loop in
