@@ -18,6 +18,7 @@ import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { PrismaInstrumentation } from '@prisma/instrumentation';
+import { FilteringSpanExporter } from './exporters/filtering-span-exporter';
 import {
   OTEL_DEFAULT_GRPC_ENDPOINT,
   OTEL_IGNORE_PATHS,
@@ -58,7 +59,12 @@ export function initOtelSdk(config: OtelConfig): void {
   const endpoint = config.exporterEndpoint ?? OTEL_DEFAULT_GRPC_ENDPOINT;
   const environment = config.environment ?? process.env.NODE_ENV ?? 'development';
 
-  const traceExporter = new OTLPTraceExporter({ url: endpoint });
+  // Wrap the real OTLP exporter with FilteringSpanExporter so noise spans
+  // (e.g. `middleware - <anonymous>` from instrumentation-router) never reach
+  // Tempo. The wrapper delegates shutdown() / forceFlush() straight through
+  // and fails open — a buggy predicate can never disappear telemetry.
+  const innerTraceExporter = new OTLPTraceExporter({ url: endpoint });
+  const traceExporter = new FilteringSpanExporter(innerTraceExporter);
 
   const metricExporter = new OTLPMetricExporter({ url: endpoint });
 
