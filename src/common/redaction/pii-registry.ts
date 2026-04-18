@@ -73,6 +73,33 @@ export const PII_PATH_GROUPS: Readonly<Record<string, PIIPathGroup>> = {
       'res.headers["set-cookie"]',
       '*.headers.authorization',
       '*.headers.cookie',
+      // Downstream-trust / proxy auth headers. These commonly carry bearer
+      // tokens, forwarded identity JWTs, or session material set by a
+      // reverse proxy (ALB/CloudFront/IAP/...); they must never land in
+      // telemetry in cleartext. See WP2-9 of plan-2.
+      'req.headers["proxy-authorization"]',
+      'req.headers["x-forwarded-authorization"]',
+      'req.headers["x-forwarded-user"]',
+      'req.headers["x-amzn-oidc-data"]',
+      'req.headers["x-amzn-oidc-accesstoken"]',
+      'req.headers["x-amzn-oidc-identity"]',
+      'req.headers["x-csrf-token"]',
+      'req.headers["x-xsrf-token"]',
+      'req.headers["x-session-id"]',
+      'req.headers["x-goog-iap-jwt-assertion"]',
+      // Wildcard nested forms catch the same headers when the enclosing
+      // object is not `req` (e.g. nested on `*.req`, on an outbound
+      // request shape, or on a sub-request object).
+      '*.headers["proxy-authorization"]',
+      '*.headers["x-forwarded-authorization"]',
+      '*.headers["x-forwarded-user"]',
+      '*.headers["x-amzn-oidc-data"]',
+      '*.headers["x-amzn-oidc-accesstoken"]',
+      '*.headers["x-amzn-oidc-identity"]',
+      '*.headers["x-csrf-token"]',
+      '*.headers["x-xsrf-token"]',
+      '*.headers["x-session-id"]',
+      '*.headers["x-goog-iap-jwt-assertion"]',
     ],
   },
   identifiers: {
