@@ -5,6 +5,7 @@ import { DatabaseModule } from '@database/database.module';
 import { AppLoggerModule } from '@logger/logger.module';
 import { TelemetryModule } from '@telemetry/telemetry.module';
 import { RedactionModule } from '@common/redaction/redaction.module';
+import { TracedHttpClientModule } from '@common/http-client/traced-http-client.module';
 import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
 import { RequestIdMiddleware } from '@common/middleware/request-id.middleware';
 import { SecurityHeadersMiddleware } from '@common/middleware/security-headers.middleware';
@@ -23,6 +24,8 @@ import { TweetsModule } from '@modules/tweets/tweets.module';
     AppLoggerModule,
     // Global PII redaction — exposes RedactorService everywhere.
     RedactionModule,
+    // Global outbound HTTP helper — exposes TracedHttpClient everywhere.
+    TracedHttpClientModule,
     // DatabaseModule is @Global() and transitively imports PrismaModule
     DatabaseModule,
     TelemetryModule,
