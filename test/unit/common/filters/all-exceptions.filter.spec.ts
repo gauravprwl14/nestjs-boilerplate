@@ -289,7 +289,7 @@ describe('AllExceptionsFilter', () => {
       expect(eventNames.filter(n => n === 'exception.cause.1')).toHaveLength(1);
     });
 
-    it('sets span status to ERROR for 5xx errors', () => {
+    it('sets span status to ERROR for 5xx errors with error.class 5xx', () => {
       // --- ARRANGE ---
       const err = new ErrorException(SRV.INTERNAL_ERROR);
       const { host } = buildHost();
@@ -299,10 +299,15 @@ describe('AllExceptionsFilter', () => {
 
       // --- ASSERT ---
       expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.attributes['error']).toBe(true);
+      expect(span.attributes['error.class']).toBe('5xx');
     });
 
-    it('leaves span status UNSET for 4xx authentication errors', () => {
-      // --- ARRANGE --- 401
+    it('marks span status ERROR for 4xx authentication errors (Tempo highlight)', () => {
+      // --- ARRANGE --- 401; the filter now flags every captured error as
+      // ERROR so Tempo's error filter surfaces failed-auth requests instead
+      // of hiding them behind green (UNSET) rows. `error.class` keeps the
+      // 4xx-vs-5xx distinction for dashboards.
       const err = new ErrorException(AUT.UNAUTHENTICATED);
       const { host } = buildHost();
 
@@ -310,10 +315,12 @@ describe('AllExceptionsFilter', () => {
       const span = runInSpan(() => filter.catch(err, host));
 
       // --- ASSERT ---
-      expect(span.status.code).toBe(SpanStatusCode.UNSET);
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.attributes['error']).toBe(true);
+      expect(span.attributes['error.class']).toBe('4xx');
     });
 
-    it('leaves span status UNSET for 4xx validation errors', () => {
+    it('marks span status ERROR for 4xx validation errors with error.class 4xx', () => {
       // --- ARRANGE --- 400
       const err = new ErrorException(VAL.INVALID_INPUT, { message: 'bad email' });
       const { host } = buildHost();
@@ -322,7 +329,9 @@ describe('AllExceptionsFilter', () => {
       const span = runInSpan(() => filter.catch(err, host));
 
       // --- ASSERT ---
-      expect(span.status.code).toBe(SpanStatusCode.UNSET);
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+      expect(span.attributes['error']).toBe(true);
+      expect(span.attributes['error.class']).toBe('4xx');
     });
 
     it('redacts PII from exception.message and exception.stacktrace on the span', () => {
@@ -363,7 +372,7 @@ describe('AllExceptionsFilter', () => {
       expect(span.attributes['http.route']).toBe('/api/v1/tweets/:id');
     });
 
-    it('falls back to request.url when request.route.path is absent', () => {
+    it('falls back to normalised request.url when request.route.path is absent', () => {
       // --- ARRANGE ---
       const err = new ErrorException(VAL.INVALID_INPUT);
       const { host } = buildHost({ method: 'GET', url: '/api/v1/raw', route: undefined });
@@ -371,8 +380,60 @@ describe('AllExceptionsFilter', () => {
       // --- ACT ---
       const span = runInSpan(() => filter.catch(err, host));
 
-      // --- ASSERT ---
+      // --- ASSERT --- pure slug path, no ids, so normalisePath is a no-op
       expect(span.attributes['http.route']).toBe('/api/v1/raw');
+    });
+
+    it('uses normalisePath to collapse id-bearing urls on the fallback path', () => {
+      // --- ARRANGE --- middleware error before router resolves the route;
+      // the raw URL carries a UUID that would blow up Tempo's cardinality
+      // if written as-is.
+      const err = new ErrorException(AUT.UNAUTHENTICATED);
+      const { host } = buildHost({
+        method: 'GET',
+        url: '/api/v1/tweets/550e8400-e29b-41d4-a716-446655440000',
+        route: undefined,
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['http.route']).toBe('/api/v1/tweets/:id');
+    });
+
+    it('strips query strings from the normalised fallback route', () => {
+      // --- ARRANGE ---
+      const err = new ErrorException(VAL.INVALID_INPUT);
+      const { host } = buildHost({
+        method: 'GET',
+        url: '/api/v1/x?page=1',
+        originalUrl: '/api/v1/x?page=1',
+        route: undefined,
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['http.route']).toBe('/api/v1/x');
+    });
+
+    it('still uses req.route.path when the router has resolved a pattern', () => {
+      // --- ARRANGE --- regression guard: the happy path must not be affected
+      // by the normalisePath fallback.
+      const err = new ErrorException(DAT.NOT_FOUND);
+      const { host } = buildHost({
+        method: 'DELETE',
+        url: '/api/v1/tweets/abc-123',
+        route: { path: '/api/v1/tweets/:id' },
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['http.route']).toBe('/api/v1/tweets/:id');
     });
 
     it('still returns the pre-refactor response body shape', () => {

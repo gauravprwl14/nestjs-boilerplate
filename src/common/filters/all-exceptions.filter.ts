@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { trace } from '@opentelemetry/api';
+import { ATTR_HTTP_ROUTE } from '@opentelemetry/semantic-conventions';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
 import { LogLevel } from '@logger/logger.interfaces';
@@ -18,6 +19,7 @@ import { GEN, VAL, AUT, AUZ, DAT, SRV } from '@errors/error-codes';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 import { RedactorService } from '@common/redaction/redactor.service';
 import { recordExceptionOnSpan } from '@telemetry/utils/record-exception.util';
+import { normalisePath } from '@telemetry/utils/path-normalizer';
 
 /**
  * Global exception filter that catches all unhandled exceptions and converts
@@ -55,20 +57,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // the failure. The filter is the single authoritative HTTP-span recorder:
     // `recordExceptionOnSpan` emits exactly one `exception` event (plus
     // `exception.cause.N` for nested causes), sets the `error.*` attributes
-    // when the error is an ErrorException, and — per OTel HTTP semconv — only
-    // marks the span status as ERROR for 5xx (4xx is a correctly-rejected
-    // client request, not a server fault).
+    // when the error is an ErrorException, and flags the span status as ERROR
+    // for every captured failure. The HTTP semconv reserves status=ERROR for
+    // 5xx only, but in Tempo the UI hides green (UNSET) rows from the error-
+    // filter views — meaning 4xx failures disappear from the incident feed.
+    // We deliberately deviate: mark ALL caught errors as ERROR, and add a
+    // cardinality-safe `error.class` attribute (`'4xx'` | `'5xx'`) so
+    // dashboards can still split legitimate client faults from server faults.
     if (span) {
       recordExceptionOnSpan(error, {
         span,
-        setStatus: error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR,
+        setStatus: true,
         redactString: (s): string => this.redactor.redactString(s),
       });
       span.setAttributes({
+        [ATTR_HTTP_ROUTE]: this.resolveRoute(request),
         'http.status_code': error.statusCode,
         'http.method': request.method,
-        'http.route':
-          (request as Request & { route?: { path?: string } }).route?.path ?? request.url,
+        error: true,
+        'error.class': error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR ? '5xx' : '4xx',
       });
     }
 
@@ -110,6 +117,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     response.status(error.statusCode).json(body);
+  }
+
+  /**
+   * Resolves the route label for `http.route`. Prefers the router-resolved
+   * pattern (`req.route.path`) when present — that is the Nest-canonical
+   * value, identical to what the `TraceEnrichmentInterceptor` sets for
+   * successful requests. When the router has NOT resolved a pattern (the
+   * error was thrown in middleware before the router ran), we fall back to
+   * `normalisePath(req.url)` so id-bearing raw URLs don't explode Tempo's
+   * cardinality.
+   */
+  private resolveRoute(req: Request): string {
+    const resolved = (req as Request & { route?: { path?: string } }).route?.path;
+    if (resolved) return resolved;
+    const rawPath = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    return normalisePath(rawPath);
   }
 
   /**
