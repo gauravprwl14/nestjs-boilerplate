@@ -372,6 +372,72 @@ describe('AllExceptionsFilter', () => {
       expect(span.attributes['http.route']).toBe('/api/v1/tweets/:id');
     });
 
+    it('writes the stable semconv HTTP attributes alongside the legacy keys', () => {
+      // --- ARRANGE --- both stable and legacy keys must coexist so
+      // semconv-aware dashboards and pre-existing ones both resolve.
+      const err = new ErrorException(DAT.NOT_FOUND);
+      const { host } = buildHost({
+        method: 'PATCH',
+        url: '/api/v1/tweets/abc',
+        route: { path: '/api/v1/tweets/:id' },
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT --- stable semconv keys
+      expect(span.attributes['http.request.method']).toBe('PATCH');
+      expect(span.attributes['http.response.status_code']).toBe(404);
+      // legacy keys (back-compat)
+      expect(span.attributes['http.method']).toBe('PATCH');
+      expect(span.attributes['http.status_code']).toBe(404);
+    });
+
+    it('sets error.code, error.user_facing, error.retryable from the ErrorException definition', () => {
+      // --- ARRANGE --- the exception recorder sets these too; the filter
+      // writes them explicitly so the contract is visible in-file.
+      const err = new ErrorException(AUT.UNAUTHENTICATED);
+      const { host } = buildHost({ method: 'GET', url: '/api/v1/anything' });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['error.code']).toBe(AUT.UNAUTHENTICATED.code);
+      expect(span.attributes['error.user_facing']).toBe(AUT.UNAUTHENTICATED.userFacing);
+      expect(span.attributes['error.retryable']).toBe(AUT.UNAUTHENTICATED.retryable);
+    });
+
+    it('stamps request.id on the span when RequestIdMiddleware populated req.id', () => {
+      // --- ARRANGE ---
+      const err = new ErrorException(VAL.INVALID_INPUT);
+      const { host } = buildHost({
+        method: 'POST',
+        url: '/api/v1/tweets',
+        id: 'req_abc_123',
+      });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['request.id']).toBe('req_abc_123');
+    });
+
+    it('omits request.id from span attributes when req.id is absent', () => {
+      // --- ARRANGE --- some error paths hit before RequestIdMiddleware
+      // populates req.id (e.g., OTel-level 404s). We must not stamp an
+      // empty string — Tempo's attribute-search doesn't handle empties well.
+      const err = new ErrorException(DAT.NOT_FOUND);
+      const { host } = buildHost({ method: 'GET', url: '/api/v1/missing', id: '' });
+
+      // --- ACT ---
+      const span = runInSpan(() => filter.catch(err, host));
+
+      // --- ASSERT ---
+      expect(span.attributes['request.id']).toBeUndefined();
+    });
+
     it('falls back to normalised request.url when request.route.path is absent', () => {
       // --- ARRANGE ---
       const err = new ErrorException(VAL.INVALID_INPUT);

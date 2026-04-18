@@ -7,8 +7,12 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { trace } from '@opentelemetry/api';
-import { ATTR_HTTP_ROUTE } from '@opentelemetry/semantic-conventions';
+import { Span, trace } from '@opentelemetry/api';
+import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_HTTP_RESPONSE_STATUS_CODE,
+  ATTR_HTTP_ROUTE,
+} from '@opentelemetry/semantic-conventions';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
 import { LogLevel } from '@logger/logger.interfaces';
@@ -20,7 +24,7 @@ import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
 import { RedactorService } from '@common/redaction/redactor.service';
 import { recordExceptionOnSpan } from '@telemetry/utils/record-exception.util';
 import { normalisePath } from '@telemetry/utils/path-normalizer';
-import { captureRequestContext } from '@telemetry/utils/body-capture';
+import { captureRequestContext, type CapturedBodySet } from '@telemetry/utils/body-capture';
 
 /**
  * Global exception filter that catches all unhandled exceptions and converts
@@ -87,27 +91,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         responseBody: body,
         redactor: this.redactor,
       });
-      if (captured.requestBody)
-        span.setAttribute('http.request.body_redacted', captured.requestBody);
-      if (captured.requestHeaders)
-        span.setAttribute('http.request.headers_redacted', captured.requestHeaders);
-      if (captured.requestQuery)
-        span.setAttribute('http.request.query_redacted', captured.requestQuery);
-      if (captured.responseBody)
-        span.setAttribute('http.response.body_redacted', captured.responseBody);
 
       recordExceptionOnSpan(error, {
         span,
         setStatus: true,
         redactString: (s): string => this.redactor.redactString(s),
       });
-      span.setAttributes({
-        [ATTR_HTTP_ROUTE]: this.resolveRoute(request),
-        'http.status_code': error.statusCode,
-        'http.method': request.method,
-        error: true,
-        'error.class': error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR ? '5xx' : '4xx',
-      });
+
+      this.setHttpSpanAttributes(span, error, request, captured, requestId);
     }
 
     // Log at appropriate level based on HTTP status:
@@ -141,6 +132,69 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // reference it — ErrorException builds its own response shape; the filter
     // just wraps it in the standard envelope.
     response.status(error.statusCode).json(body);
+  }
+
+  /**
+   * Stamp every attribute that a failed request's HTTP server span should
+   * carry in one place. Splits cleanly into three groups:
+   *
+   * 1. **HTTP semconv** — `http.route`, the current stable semconv keys
+   *    (`ATTR_HTTP_REQUEST_METHOD`, `ATTR_HTTP_RESPONSE_STATUS_CODE`), plus
+   *    their legacy counterparts (`http.method`, `http.status_code`) so
+   *    pre-existing dashboards keep working.
+   * 2. **Error envelope** — `error`, `error.class` (4xx / 5xx, cardinality-
+   *    safe), and `error.code` / `error.user_facing` / `error.retryable`
+   *    pulled directly from the ErrorException definition. These are
+   *    redundant with what `recordExceptionOnSpan` sets for ErrorException
+   *    instances, but writing them here keeps the filter's contract visible
+   *    and robust when the recorder evolves.
+   * 3. **Captured context** — body / headers / query / response-body that
+   *    `captureRequestContext` produced. Each is optional — the capture
+   *    helper returns the field only when a value exists and fits the cap.
+   * 4. **Correlation** — `request.id` so a Tempo span lookup maps directly
+   *    back to a Pino log line.
+   *
+   * Setting attributes is idempotent with respect to `recordExceptionOnSpan`;
+   * later writes of the same key win, but all values match, so the final
+   * span attributes are consistent regardless of order.
+   */
+  private setHttpSpanAttributes(
+    span: Span,
+    error: ErrorException,
+    request: Request,
+    captured: CapturedBodySet,
+    requestId: string,
+  ): void {
+    span.setAttributes({
+      // 1. HTTP semconv
+      [ATTR_HTTP_ROUTE]: this.resolveRoute(request),
+      [ATTR_HTTP_REQUEST_METHOD]: request.method,
+      [ATTR_HTTP_RESPONSE_STATUS_CODE]: error.statusCode,
+      'http.method': request.method,
+      'http.status_code': error.statusCode,
+      // 2. Error envelope
+      error: true,
+      'error.class': error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR ? '5xx' : '4xx',
+      'error.code': error.code,
+      'error.user_facing': error.definition.userFacing,
+      'error.retryable': error.definition.retryable,
+      // 4. Correlation (populated when RequestIdMiddleware ran)
+      ...(requestId ? { 'request.id': requestId } : {}),
+    });
+
+    // 3. Captured context — attach only what exists.
+    if (captured.requestBody) {
+      span.setAttribute('http.request.body_redacted', captured.requestBody);
+    }
+    if (captured.requestHeaders) {
+      span.setAttribute('http.request.headers_redacted', captured.requestHeaders);
+    }
+    if (captured.requestQuery) {
+      span.setAttribute('http.request.query_redacted', captured.requestQuery);
+    }
+    if (captured.responseBody) {
+      span.setAttribute('http.response.body_redacted', captured.responseBody);
+    }
   }
 
   /**
