@@ -22,9 +22,11 @@ Observability answers three questions in production:
 
 ---
 
-## 2. Flow Diagram
+## 2. Flow Diagrams
 
-See `docs/diagrams/observability-pipeline.md` for the full mermaid pipeline diagram.
+### 2.1 Observability pipeline
+
+Top-level shape of how an in-process observation lands in Grafana. See `docs/diagrams/observability-pipeline.md` for the full mermaid pipeline diagram.
 
 ```
 App (OTel SDK)
@@ -34,6 +36,158 @@ App (OTel SDK)
     → Prometheus (metrics, PromQL)
       → Grafana UI (all three datasources)
 ```
+
+### 2.2 Inbound request — tracing + redaction + correlation
+
+Every `/api/**` request flows through the same chain on the happy path. The `trace_id` is woven into every log line and every span by the Pino mixin + OTel context.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant H as http auto-instr
+    participant M as RequestId/SecurityHeaders/MockAuth middleware
+    participant I as TraceEnrichmentInterceptor
+    participant S as Service / Repo (@Trace / @InstrumentClass)
+    participant P as PrismaInstrumentation
+    participant DB as Postgres
+    participant T as OTLPTraceExporter
+    participant L as Pino → Loki
+
+    C->>H: HTTP POST /api/v1/tweets
+    H->>H: start root span (named "POST")
+    H->>M: req + active span
+    M->>M: RequestIdMiddleware stamps req.id
+    M->>M: MockAuthMiddleware resolves user → CLS
+    M->>I: handler match; req.route.path set
+    I->>I: span.updateName("POST /api/v1/tweets")<br/>setAttribute(ATTR_HTTP_ROUTE, "/api/v1/tweets")
+    I->>S: controller method invoked
+    S->>S: @Trace creates child span "TweetsController.create"
+    S->>P: db.call() (a.k.a. @InstrumentClass)
+    P->>DB: pg.query (new child span)
+    DB-->>P: row
+    P-->>S: result
+    S-->>I: response object
+    I-->>H: pipes through
+    H-->>C: 201 Created
+    Note over H,T: root span closes;<br/>FilteringSpanExporter drops `middleware - <anonymous>`<br/>then hands to OTLPTraceExporter
+    H->>T: export span tree
+    S-->>L: AppLogger.logEvent emits with trace_id from mixin
+```
+
+Redaction points on this path: every `logEvent` attribute pair is piped through `RedactorService.redactObject` before both Pino (`info`) and `span.addEvent(...)` land their payloads, so Loki and Tempo receive identical redacted views.
+
+### 2.3 Error path — body capture & redaction
+
+On any thrown exception inside `/api/**`, the filter is the single authoritative HTTP-span recorder. This is the diagram to consult when "why is my trace showing X" becomes a question.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Service / Middleware (throws)
+    participant F as AllExceptionsFilter
+    participant CR as captureRequestContext
+    participant R as RedactorService
+    participant RE as recordExceptionOnSpan
+    participant SP as Active HTTP span
+    participant LG as AppLogger → Loki
+    participant HC as HTTP response
+
+    S-->>F: throws ErrorException (or unknown)
+    F->>F: normalise(exception) → ErrorException
+    F->>F: build ApiErrorResponse body (with cause chain in dev)
+    F->>CR: captureRequestContext({ request, responseBody, redactor })
+    CR->>CR: takeToken() (rate-limit 50/sec)
+    CR->>R: redactObject(body) + redactObject(headers) + redactObject(query)
+    R-->>CR: mutated structures with PII replaced by [REDACTED]
+    CR->>R: redactString(JSON.stringify(each))
+    R-->>CR: regex-scrubbed (email / JWT / bearer token / SSN / card)
+    CR-->>F: CapturedBodySet (per-field 1 KB cap, 8 KB total)
+    F->>RE: recordExceptionOnSpan(error, { redactString })
+    RE->>SP: addEvent("exception") + one per cause
+    RE->>SP: setStatus(ERROR)
+    RE->>SP: set error.* attrs from ErrorException definition
+    F->>SP: setHttpSpanAttributes(span, error, request, captured, requestId)
+    SP-->>SP: http.route / http.method / http.status_code<br/>error / error.class / error.code / error.user_facing / error.retryable<br/>request.id<br/>http.request.body_redacted etc.
+    F->>LG: logError("http.error", error) — no span recording (filter already did it)
+    F->>HC: response.status(N).json(body) — same body the span captured
+```
+
+Key invariants enforced by this flow:
+
+- Exactly **one** `exception` event per HTTP span (no duplicates between filter / interceptor / decorator).
+- Captured body/headers/query NEVER contain PII matching `DEFAULT_PII_PATHS` — both path-based and regex-based redaction run.
+- Span status is `ERROR` for all captured exceptions (4xx and 5xx), with `error.class` discriminating them for dashboards.
+- If the body-capture rate limiter is exhausted, attributes fall back to `'[rate-limited]'` — no exception is ever dropped.
+
+### 2.4 Outbound call — TracedHttpClient tier-2 (opt-in)
+
+Use this flow when you're adding a call to a third-party API and the remote JSON error body is actually useful for diagnosis. Tier-1 auto-instrumentation (`requestHook`/`responseHook`) handles the ambient case.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Caller (inside a request)
+    participant TC as TracedHttpClient
+    participant ST as withSuppressed (exporter loop guard)
+    participant F as global.fetch
+    participant RS as Remote service
+    participant R as RedactorService
+    participant SP as Child span
+    participant FT as AllExceptionsFilter (if thrown up)
+
+    App->>TC: request<T>({ url, body, captureBodyOnError: true })
+    TC->>ST: withSuppressed if url === exporter endpoint
+    ST->>F: fetch(url, …) with AbortController timeout
+    F->>RS: HTTPS request
+    RS-->>F: status, headers, body stream
+    F-->>TC: Response object
+    alt resp.ok (2xx)
+        TC->>TC: resp.json()
+        TC-->>App: parsed T
+    else non-2xx
+        TC->>TC: await resp.text() (fully buffered, no tee)
+        TC->>R: redactString(raw.slice(0, 1024))
+        R-->>TC: redacted body
+        TC->>SP: setAttribute("http.client.response.body_redacted", redacted)
+        TC->>TC: new ErrorException(SRV.EXTERNAL_API_ERROR, { cause: { status, message } })
+        TC-->>App: throws
+        App-->>FT: propagates up to AllExceptionsFilter
+        FT->>SP: records exception + cause chain on ITS HTTP span (not the client span)
+    end
+```
+
+Safety guarantees versus a stream tee:
+
+- The outbound response is consumed exactly once via `await resp.text()` — no listener pollution, no consumer starvation.
+- Non-error paths never read the body — `resp.json()` is called directly for 2xx only.
+- `captureBodyOnError: false` is a per-call opt-out when you intentionally don't want the remote body on the span (secret-retrieval APIs, long binary responses).
+- The remote error message is propagated via `cause` so the filter's cause-chain serialiser shows it as `exception.cause.1` on the caller's HTTP span.
+
+### 2.5 PII redaction — single source of truth
+
+One registry feeds every redaction surface. Adding a new PII field in `pii-registry.ts` is the only change required for it to be masked in Pino logs, span attributes, and free-form strings.
+
+```mermaid
+flowchart TB
+    A["PII_PATH_GROUPS<br/>(credentials / identifiers / contact / financial / device)"]:::registry
+    A --> B["DEFAULT_PII_PATHS<br/>(flattened, frozen)"]:::registry
+    C["PII_STRING_PATTERNS<br/>(regex: email, JWT, bearer, SSN, card, E.164)"]:::registry
+
+    B --> D["Pino config<br/>(logger.config.ts)"]:::surface
+    B --> E["RedactorService.redactObject<br/>(fast-redact)"]:::surface
+    C --> F["RedactorService.redactString<br/>(regex scrub)"]:::surface
+
+    D --> G["Loki logs"]:::sink
+    E --> H["Span attributes<br/>(logEvent, logError, body capture)"]:::sink
+    F --> I["exception.message / stacktrace<br/>free-form text in attrs"]:::sink
+
+    classDef registry fill:#1e2a4a,stroke:#6b8ee8,color:#e3edff
+    classDef surface fill:#2d4a3a,stroke:#6bd4a3,color:#e3fff0
+    classDef sink fill:#3a2d4a,stroke:#b882e6,color:#f1e3ff
+```
+
+The `allowPII` opt-in on `logEvent` / `logError` short-circuits path (E) for specific registry paths, and emits a one-shot audit log per `(path, callsite)` so bypass is grep-able.
 
 ---
 
@@ -266,6 +420,52 @@ Outbound calls are instrumented by `@opentelemetry/instrumentation-http`. We lay
 - Outbound traffic to the OTel collector endpoint and any request made inside `withSuppressed(...)` is ignored entirely to prevent feedback loops.
 
 **Tier 2 — opt-in per call.** `src/common/http-client/traced-http-client.ts` exposes `TracedHttpClient.request<T>({ url, method, body?, captureBodyOnError?, timeoutMs? })`. It fully buffers the remote response, and on non-2xx reads the body (capped + redacted) onto the span as `http.client.response.body_redacted` before throwing `ErrorException(SRV.EXTERNAL_API_ERROR, { cause })`. Use this when you need the remote JSON error body (e.g. `{ error: "invalid_signature" }` from Stripe); skip it when the headers are enough.
+
+**Current status (important):** `TracedHttpClient` is **scaffolded, not wired**. The repo currently has zero outbound third-party calls — auth is mocked via the `x-user-id` header, and no payment / notification / social-login vendor is integrated yet. The helper is there so that the _first_ person to add such a call has the redaction pipeline ready: `import` it, inject it, call it. No additional wiring, no code review about whether error-body capture is implemented correctly. See the diagram in § 2.4 for the end-to-end flow when you do adopt it.
+
+**Example — adding a new Stripe payment-intent call:**
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { TracedHttpClient } from '@common/http-client/traced-http-client';
+import { ErrorException } from '@errors/types/error-exception';
+import { SRV } from '@errors/error-codes';
+
+interface StripePaymentIntent {
+  id: string;
+  status: string;
+}
+
+@Injectable()
+export class StripeService {
+  constructor(private readonly http: TracedHttpClient) {}
+
+  async confirmIntent(intentId: string, amountCents: number): Promise<StripePaymentIntent> {
+    try {
+      // On 4xx/5xx this throws ErrorException(SRV.EXTERNAL_API_ERROR) automatically;
+      // the remote JSON error body lands on the span as `http.client.response.body_redacted`
+      // (capped + PII-scrubbed), so Tempo shows you exactly what Stripe said.
+      return await this.http.request<StripePaymentIntent>({
+        url: `https://api.stripe.com/v1/payment_intents/${intentId}/confirm`,
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.STRIPE_KEY}`, // redacted on span per registry
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: { amount: amountCents },
+        captureBodyOnError: true, // default; set false for secret-retrieval endpoints
+        timeoutMs: 10_000,
+      });
+    } catch (err) {
+      // Business-layer wrap: add domain context without losing the remote cause chain.
+      throw new ErrorException(SRV.EXTERNAL_API_ERROR, {
+        message: `Stripe confirm failed for intent ${intentId}`,
+        cause: err,
+      });
+    }
+  }
+}
+```
 
 **Debug workflow for an outbound failure:**
 
