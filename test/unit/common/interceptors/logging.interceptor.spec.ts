@@ -82,4 +82,39 @@ describe('LoggingInterceptor', () => {
     expect(errorArg).toBeInstanceOf(Error);
     expect((errorArg as Error).message).toBe('just a string');
   });
+
+  describe('single-owner rule (the filter, not the interceptor, records HTTP-span exceptions)', () => {
+    it('passes recordException: false on the Error path to logger.logError', async () => {
+      // --- ARRANGE --- the interceptor must opt out of span exception
+      // recording so the filter is the sole authoritative recorder. AppLogger
+      // respects `recordException: false` by skipping its internal call to
+      // `recordExceptionOnSpan`, so setting this option on every logError call
+      // from the interceptor structurally guarantees zero duplicate span events.
+      const err = new Error('boom');
+      const handler: CallHandler = { handle: () => throwError(() => err) };
+
+      // --- ACT ---
+      await expect(
+        lastValueFrom(interceptor.intercept(ctx('POST', '/api/v1/x'), handler)),
+      ).rejects.toBe(err);
+
+      // --- ASSERT ---
+      const options = logger.logError.mock.calls[0][2];
+      expect(options).toMatchObject({ recordException: false });
+    });
+
+    it('passes recordException: false on the non-Error path to logger.logError', async () => {
+      // --- ARRANGE ---
+      const handler: CallHandler = { handle: () => throwError(() => 'kaboom-string') };
+
+      // --- ACT ---
+      await expect(
+        lastValueFrom(interceptor.intercept(ctx('GET', '/api/v1/x'), handler)),
+      ).rejects.toBe('kaboom-string');
+
+      // --- ASSERT ---
+      const options = logger.logError.mock.calls[0][2];
+      expect(options).toMatchObject({ recordException: false });
+    });
+  });
 });

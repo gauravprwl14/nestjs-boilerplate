@@ -1,5 +1,5 @@
 import { ErrorException } from '@errors/types/error-exception';
-import { ERROR_CODES, VAL, DAT, SRV, AUT, GEN } from '@errors/error-codes';
+import { VAL, DAT, SRV, GEN } from '@errors/error-codes';
 
 describe('ErrorException', () => {
   describe('constructor', () => {
@@ -115,7 +115,7 @@ describe('ErrorException', () => {
       expect(error.code).toBe('VAL0001');
       expect(error.details).toBeDefined();
       expect(error.details!.length).toBe(2);
-      expect(error.details!.some((d) => d.field === 'email')).toBe(true);
+      expect(error.details!.some(d => d.field === 'email')).toBe(true);
     });
 
     it('should use _root field for top-level errors (empty path)', () => {
@@ -128,7 +128,7 @@ describe('ErrorException', () => {
       const error = ErrorException.validation(zodLikeError);
 
       // --- ASSERT ---
-      expect(error.details!.some((d) => d.field === '_root')).toBe(true);
+      expect(error.details!.some(d => d.field === '_root')).toBe(true);
     });
   });
 
@@ -157,8 +157,8 @@ describe('ErrorException', () => {
       // --- ASSERT ---
       expect(error.code).toBe('VAL0001');
       expect(error.details).toBeDefined();
-      expect(error.details!.some((d) => d.field === 'email')).toBe(true);
-      expect(error.details!.some((d) => d.field === 'address.zip')).toBe(true);
+      expect(error.details!.some(d => d.field === 'email')).toBe(true);
+      expect(error.details!.some(d => d.field === 'address.zip')).toBe(true);
     });
   });
 
@@ -408,6 +408,65 @@ describe('ErrorException', () => {
 
       // --- ASSERT ---
       expect(log.cause).toBeUndefined();
+    });
+  });
+
+  describe('cause stack preservation', () => {
+    it('should append cause.stack to own stack with "Caused by:" separator', () => {
+      // --- ARRANGE --- a leaf error with a known stack frame
+      const leaf = new Error('leaf-error');
+
+      // --- ACT --- wrap the leaf in an ErrorException
+      const wrap = new ErrorException(DAT.NOT_FOUND, { cause: leaf });
+
+      // --- ASSERT --- the wrap's stack must include both its own frames and
+      // the cause's frames, separated by a "Caused by:" marker.
+      expect(wrap.stack).toBeDefined();
+      expect(wrap.stack).toContain('Caused by:');
+      expect(wrap.stack).toContain('leaf-error');
+      // Own frames (from ErrorException constructor/site) are still present
+      expect(wrap.stack).toContain('ErrorException');
+    });
+
+    it('should be a no-op when cause has no stack property', () => {
+      // --- ARRANGE & ACT --- cause is a fake Error-like object with no stack
+      const act = () =>
+        new ErrorException(DAT.NOT_FOUND, {
+          cause: { message: 'no stack' } as unknown as Error,
+        });
+
+      // --- ASSERT --- constructor does not throw and still produces a stack
+      expect(act).not.toThrow();
+      const error = act();
+      expect(error.stack).toBeDefined();
+      expect(error.stack).not.toContain('Caused by:');
+    });
+
+    it('should be a no-op when there is no cause', () => {
+      // --- ARRANGE & ACT ---
+      const error = new ErrorException(DAT.NOT_FOUND);
+
+      // --- ASSERT --- stack still captured by captureStackTrace; no marker
+      expect(error.stack).toBeDefined();
+      expect(error.stack).not.toContain('Caused by:');
+    });
+
+    it('should preserve the existing toResponse cause-chain shape after refactor', () => {
+      // --- ARRANGE --- regression guard for the extractCauseChain delegation
+      const root = new Error('root cause');
+      const mid = new ErrorException(DAT.QUERY_FAILED, { message: 'query issue', cause: root });
+      const top = new ErrorException(SRV.INTERNAL_ERROR, { cause: mid });
+
+      // --- ACT ---
+      const response = top.toResponse(true);
+
+      // --- ASSERT --- same shape and codes as before the refactor
+      expect(response.cause).toBeDefined();
+      expect(response.cause!).toHaveLength(2);
+      expect(response.cause![0].code).toBe('DAT0007');
+      expect(response.cause![0].message).toBe('query issue');
+      expect(response.cause![1].code).toBeUndefined();
+      expect(response.cause![1].message).toBe('root cause');
     });
   });
 });

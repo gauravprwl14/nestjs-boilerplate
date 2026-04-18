@@ -17,6 +17,10 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PrismaInstrumentation } from '@prisma/instrumentation';
+import { FilteringSpanExporter } from './exporters/filtering-span-exporter';
+import { buildOutboundHooks } from './hooks/outbound-http.hooks';
+import { RedactorService } from '@common/redaction/redactor.service';
 import {
   OTEL_DEFAULT_GRPC_ENDPOINT,
   OTEL_IGNORE_PATHS,
@@ -57,7 +61,12 @@ export function initOtelSdk(config: OtelConfig): void {
   const endpoint = config.exporterEndpoint ?? OTEL_DEFAULT_GRPC_ENDPOINT;
   const environment = config.environment ?? process.env.NODE_ENV ?? 'development';
 
-  const traceExporter = new OTLPTraceExporter({ url: endpoint });
+  // Wrap the real OTLP exporter with FilteringSpanExporter so noise spans
+  // (e.g. `middleware - <anonymous>` from instrumentation-router) never reach
+  // Tempo. The wrapper delegates shutdown() / forceFlush() straight through
+  // and fails open — a buggy predicate can never disappear telemetry.
+  const innerTraceExporter = new OTLPTraceExporter({ url: endpoint });
+  const traceExporter = new FilteringSpanExporter(innerTraceExporter);
 
   const metricExporter = new OTLPMetricExporter({ url: endpoint });
 
@@ -90,6 +99,15 @@ export function initOtelSdk(config: OtelConfig): void {
             const url = req.url ?? '';
             return OTEL_IGNORE_PATHS.some(pattern => pattern.test(url));
           },
+          // Outbound HTTP hooks: redacted headers on request + error
+          // responses, suppressTracing-aware, exporter-host ignored to
+          // avoid feedback loops. `RedactorService` has no DI deps so
+          // we can instantiate it standalone at SDK bootstrap time
+          // (see src/common/redaction/redactor.service.ts).
+          ...buildOutboundHooks({
+            redactor: new RedactorService(),
+            exporterUrl: endpoint,
+          }),
         },
         // Disable noisy fs instrumentation
         '@opentelemetry/instrumentation-fs': {
@@ -107,6 +125,13 @@ export function initOtelSdk(config: OtelConfig): void {
           enabled: true,
         },
       }),
+      // Prisma instrumentation: emits client-level spans (query, operation,
+      // serialize, engine connection) so DB latency is visible in Tempo.
+      // Prisma 7 emits engine spans natively; the v7 `@prisma/instrumentation`
+      // config only accepts `ignoreSpanTypes` — the legacy `middleware` flag
+      // is no longer needed (tracing preview has also been enabled in
+      // schema.prisma for forward compatibility).
+      new PrismaInstrumentation(),
     ],
   });
 

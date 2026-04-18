@@ -1,6 +1,8 @@
 import { RequestMethod } from '@nestjs/common';
 import { Params } from 'nestjs-pino';
-import { REDACT_PATHS, REDACT_CENSOR } from './logger.constants';
+import { trace, isSpanContextValid } from '@opentelemetry/api';
+import { DEFAULT_PII_PATHS } from '@common/redaction/pii-registry';
+import { REDACTION_CENSOR } from '@common/redaction/redaction.constants';
 
 /**
  * Route matcher for the pino-http middleware. nestjs-pino defaults to
@@ -46,9 +48,12 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
           },
         },
         redact: {
-          paths: REDACT_PATHS as string[],
-          censor: REDACT_CENSOR,
+          // Spread the frozen registry into a mutable array — fast-redact
+          // mutates its `paths` option when building the internal state.
+          paths: [...DEFAULT_PII_PATHS],
+          censor: REDACTION_CENSOR,
         },
+        mixin: traceContextMixin,
         serializers: {
           req(req: { method: string; url: string; headers: Record<string, string> }) {
             return {
@@ -80,9 +85,12 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
     pinoHttp: {
       level: logLevel,
       redact: {
-        paths: REDACT_PATHS as string[],
-        censor: REDACT_CENSOR,
+        // Spread the frozen registry into a mutable array — fast-redact
+        // mutates its `paths` option when building the internal state.
+        paths: [...DEFAULT_PII_PATHS],
+        censor: REDACTION_CENSOR,
       },
+      mixin: traceContextMixin,
       formatters: {
         level(label: string) {
           return { level: label };
@@ -120,5 +128,26 @@ export function createPinoConfig(options: PinoConfigOptions): Params {
         service: serviceName,
       }),
     },
+  };
+}
+
+/**
+ * Pino `mixin` that stamps every log record with the active OTel span context
+ * so Loki/Tempo can correlate logs ↔ traces without per-callsite plumbing.
+ *
+ * Returns an empty object when there is no active span (e.g. bootstrap logs)
+ * or when the context is invalid, so Pino's output stays untouched.
+ *
+ * `trace_flags` is emitted as a two-hex-digit string (`'01'`, `'00'`) to
+ * match the W3C trace-context serialisation used by collectors.
+ */
+function traceContextMixin(): Record<string, string> {
+  const span = trace.getActiveSpan();
+  const ctx = span?.spanContext();
+  if (!ctx || !isSpanContextValid(ctx)) return {};
+  return {
+    trace_id: ctx.traceId,
+    span_id: ctx.spanId,
+    trace_flags: `0${ctx.traceFlags.toString(16)}`,
   };
 }

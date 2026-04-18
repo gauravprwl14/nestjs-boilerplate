@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * DB-layer boundary used by feature services to compose multiple db-service
  * calls atomically. Exposes runInTransaction and nothing else; all entity
  * queries belong on the per-aggregate *DbService classes.
  */
+@InstrumentClass()
 @Injectable()
 export class DatabaseService {
   constructor(private readonly prisma: PrismaService) {}

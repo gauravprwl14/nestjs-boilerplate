@@ -1,5 +1,10 @@
 import { HttpStatus } from '@nestjs/common';
-import { ErrorType, ErrorCategory, ErrorSeverity, ErrorCodeDefinition } from '../interfaces/error.interfaces';
+import {
+  ErrorType,
+  ErrorCategory,
+  ErrorSeverity,
+  ErrorCodeDefinition,
+} from '../interfaces/error.interfaces';
 
 /**
  * Server / infrastructure error codes (SRV prefix).
@@ -38,6 +43,24 @@ export const SRV = {
     errorType: ErrorType.INFRASTRUCTURE,
     errorCategory: ErrorCategory.SERVER,
     messageKey: 'error.server.SRV0003.cache_error',
+    severity: ErrorSeverity.ERROR,
+    retryable: true,
+    userFacing: false,
+  },
+  /**
+   * An outbound call to an external API failed.
+   * Mapped to 502 (Bad Gateway) since the remote peer — not this service —
+   * is the authoritative source of the failure. `userFacing` is false so
+   * the filter masks any vendor-specific detail from end users; the span /
+   * log still carries the full cause chain for operators.
+   */
+  EXTERNAL_API_ERROR: {
+    code: 'SRV0004',
+    message: 'External API call failed.',
+    httpStatus: HttpStatus.BAD_GATEWAY,
+    errorType: ErrorType.INFRASTRUCTURE,
+    errorCategory: ErrorCategory.SERVER,
+    messageKey: 'error.server.SRV0004.external_api_error',
     severity: ErrorSeverity.ERROR,
     retryable: true,
     userFacing: false,

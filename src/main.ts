@@ -16,6 +16,7 @@ import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
 import { TransformInterceptor } from '@common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from '@common/interceptors/logging.interceptor';
 import { TimeoutInterceptor } from '@common/interceptors/timeout.interceptor';
+import { TraceEnrichmentInterceptor } from '@telemetry/interceptors/trace-enrichment.interceptor';
 import { setupProcessHandlers } from '@/bootstrap/process-handlers';
 import {
   SWAGGER_PATH,
@@ -95,8 +96,12 @@ function setupGlobalPipes(app: INestApplication): void {
 }
 
 function setupGlobalInterceptors(app: INestApplication, logger: AppLogger): void {
+  // Order matters: Timeout wraps the handler in a deadline, TraceEnrichment
+  // renames the span and sets http.route, Logging uses the resolved route for
+  // structured log attributes, and Transform reshapes the response envelope.
   app.useGlobalInterceptors(
     new TimeoutInterceptor(),
+    new TraceEnrichmentInterceptor(),
     new LoggingInterceptor(logger),
     new TransformInterceptor(),
   );

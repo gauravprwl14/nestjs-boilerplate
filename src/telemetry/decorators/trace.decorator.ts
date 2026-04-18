@@ -1,15 +1,18 @@
 import { trace, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 import { TraceOptions } from '../interfaces/telemetry.interfaces';
 import { TRACER_NAME, SPAN_ATTR_CLASS, SPAN_ATTR_METHOD } from '../otel.constants';
+import { recordExceptionOnSpan } from '../utils/record-exception.util';
 
 /**
  * @Trace() — method decorator that wraps the decorated method in an active OTel span.
  *
  * The span is automatically ended when the method returns (or rejects/throws).
- * Errors are recorded on the span and re-thrown unchanged — this decorator is
- * completely transparent to the caller.
+ * Errors are recorded on the span via {@link recordExceptionOnSpan} and
+ * re-thrown unchanged — this decorator is completely transparent to the caller.
  *
- * Works for both synchronous and async methods.
+ * Works for both synchronous and async methods. The span is always created as
+ * a child of the caller's active span (via `startActiveSpan`), so traces
+ * compose naturally without any `root` override.
  *
  * @example
  * ```ts
@@ -42,17 +45,14 @@ export function Trace(options?: TraceOptions): MethodDecorator {
         {
           kind: options?.kind ?? SpanKind.INTERNAL,
           attributes: spanAttributes,
-          root: options?.root,
         },
         span => {
           const handleError = (err: unknown): never => {
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: err instanceof Error ? err.message : String(err),
-            });
-            if (err instanceof Error) {
-              span.recordException(err);
-            }
+            // Single authoritative recorder for child spans — emits the
+            // `exception` event plus `exception.cause.N` for the cause chain
+            // and sets ERROR status. Redaction is applied via the module-level
+            // default (see `setDefaultRedactString`) when one is registered.
+            recordExceptionOnSpan(err, { span, setStatus: true });
             span.end();
             throw err;
           };

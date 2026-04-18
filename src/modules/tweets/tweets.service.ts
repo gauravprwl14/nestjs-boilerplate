@@ -7,6 +7,7 @@ import { ClsKey } from '@common/cls/cls.constants';
 import { DEFAULT_TIMELINE_LIMIT } from '@common/constants';
 import { ErrorException } from '@errors/types/error-exception';
 import { AUT, VAL } from '@errors/error-codes';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 import { CreateTweetDto } from './dto/create-tweet.dto';
 
 /** Public-facing timeline row (camelCase, same fields as raw row). */
@@ -18,6 +19,7 @@ export interface TimelineTweet {
   createdAt: Date;
 }
 
+@InstrumentClass()
 @Injectable()
 export class TweetsService {
   constructor(

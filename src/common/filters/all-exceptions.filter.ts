@@ -7,7 +7,12 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { Span, trace } from '@opentelemetry/api';
+import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_HTTP_RESPONSE_STATUS_CODE,
+  ATTR_HTTP_ROUTE,
+} from '@opentelemetry/semantic-conventions';
 import { AppLogger } from '@logger/logger.service';
 import { AppConfigService } from '@config/config.service';
 import { LogLevel } from '@logger/logger.interfaces';
@@ -16,6 +21,10 @@ import { ErrorCodeDefinition } from '@errors/interfaces/error.interfaces';
 import { handlePrismaError, isPrismaError } from '@errors/handlers/prisma-error.handler';
 import { GEN, VAL, AUT, AUZ, DAT, SRV } from '@errors/error-codes';
 import { ApiErrorResponse } from '@common/interfaces/api-response.interface';
+import { RedactorService } from '@common/redaction/redactor.service';
+import { recordExceptionOnSpan } from '@telemetry/utils/record-exception.util';
+import { normalisePath } from '@telemetry/utils/path-normalizer';
+import { captureRequestContext, type CapturedBodySet } from '@telemetry/utils/body-capture';
 
 /**
  * Global exception filter that catches all unhandled exceptions and converts
@@ -31,6 +40,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   constructor(
     private readonly logger: AppLogger,
     private readonly config: AppConfigService,
+    private readonly redactor: RedactorService,
   ) {
     this.logger.setContext(AllExceptionsFilter.name);
   }
@@ -48,34 +58,56 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Normalise the exception to an ErrorException
     const error = this.normalise(exception);
 
+    // Build the response body BEFORE the span-attribute phase so we can feed
+    // it to `captureRequestContext` as `responseBody`. The same object is
+    // sent down the wire below.
+    const includeChain = !this.config.isProduction;
+    const body: ApiErrorResponse = {
+      success: false,
+      errors: [error.toResponse(includeChain)],
+      requestId: requestId || undefined,
+      traceId: traceId || undefined,
+      timestamp: new Date().toISOString(),
+    };
+
     // Attribute the error to the active HTTP server span so the trace carries
-    // the failure. Without this, errors thrown in middleware (e.g. MockAuth's
-    // AUT.UNAUTHENTICATED) or anywhere else reach the filter, but the span
-    // looks successful in Tempo — no exception event, no error status, no
-    // error.* attributes. That breaks the Traces Drilldown error panels and
-    // any TraceQL error queries.
+    // the failure. The filter is the single authoritative HTTP-span recorder:
+    // `recordExceptionOnSpan` emits exactly one `exception` event (plus
+    // `exception.cause.N` for nested causes), sets the `error.*` attributes
+    // when the error is an ErrorException, and flags the span status as ERROR
+    // for every captured failure. The HTTP semconv reserves status=ERROR for
+    // 5xx only, but in Tempo the UI hides green (UNSET) rows from the error-
+    // filter views — meaning 4xx failures disappear from the incident feed.
+    // We deliberately deviate: mark ALL caught errors as ERROR, and add a
+    // cardinality-safe `error.class` attribute (`'4xx'` | `'5xx'`) so
+    // dashboards can still split legitimate client faults from server faults.
     if (span) {
-      const cause = exception instanceof Error ? exception : new Error(String(exception));
-      span.recordException(cause);
-      span.setAttributes({
-        'error.code': error.code,
-        'error.type': error.definition.errorType,
-        'error.category': error.definition.errorCategory,
-        'http.status_code': error.statusCode,
-        'http.method': request.method,
-        'http.url': request.url,
+      // Body / headers / query capture — redacted, capped, rate-limited.
+      // `captureRequestContext` never throws; on any internal error it
+      // returns `{}` and no attributes are set. Run this BEFORE
+      // `recordExceptionOnSpan` so captures accompany the exception event.
+      const captured = captureRequestContext({
+        request,
+        responseBody: body,
+        redactor: this.redactor,
       });
-      // Per OTel HTTP semconv: only 5xx should mark the server span as ERROR.
-      // 4xx is a correctly-rejected client request, not a server fault.
-      if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
-        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-      }
+
+      recordExceptionOnSpan(error, {
+        span,
+        setStatus: true,
+        redactString: (s): string => this.redactor.redactString(s),
+      });
+
+      this.setHttpSpanAttributes(span, error, request, captured, requestId);
     }
 
     // Log at appropriate level based on HTTP status:
-    // 5xx -> ERROR (logError), 4xx -> WARN (log)
+    // 5xx -> ERROR (logError), 4xx -> WARN (log). We pass `recordException: false`
+    // because the filter already recorded the exception on the HTTP span above —
+    // this is the single authoritative recorder for the HTTP layer.
     if (error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.logError('http.error', error, {
+        recordException: false,
         attributes: {
           requestId,
           'http.status': error.statusCode,
@@ -96,17 +128,89 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
     }
 
-    // ErrorException builds its own response — filter is thin
-    const includeChain = !this.config.isProduction;
-    const body: ApiErrorResponse = {
-      success: false,
-      errors: [error.toResponse(includeChain)],
-      requestId: requestId || undefined,
-      traceId: traceId || undefined,
-      timestamp: new Date().toISOString(),
-    };
-
+    // `body` was built above (before the span-attribute phase) so capture could
+    // reference it — ErrorException builds its own response shape; the filter
+    // just wraps it in the standard envelope.
     response.status(error.statusCode).json(body);
+  }
+
+  /**
+   * Stamp every attribute that a failed request's HTTP server span should
+   * carry in one place. Splits cleanly into three groups:
+   *
+   * 1. **HTTP semconv** — `http.route`, the current stable semconv keys
+   *    (`ATTR_HTTP_REQUEST_METHOD`, `ATTR_HTTP_RESPONSE_STATUS_CODE`), plus
+   *    their legacy counterparts (`http.method`, `http.status_code`) so
+   *    pre-existing dashboards keep working.
+   * 2. **Error envelope** — `error`, `error.class` (4xx / 5xx, cardinality-
+   *    safe), and `error.code` / `error.user_facing` / `error.retryable`
+   *    pulled directly from the ErrorException definition. These are
+   *    redundant with what `recordExceptionOnSpan` sets for ErrorException
+   *    instances, but writing them here keeps the filter's contract visible
+   *    and robust when the recorder evolves.
+   * 3. **Captured context** — body / headers / query / response-body that
+   *    `captureRequestContext` produced. Each is optional — the capture
+   *    helper returns the field only when a value exists and fits the cap.
+   * 4. **Correlation** — `request.id` so a Tempo span lookup maps directly
+   *    back to a Pino log line.
+   *
+   * Setting attributes is idempotent with respect to `recordExceptionOnSpan`;
+   * later writes of the same key win, but all values match, so the final
+   * span attributes are consistent regardless of order.
+   */
+  private setHttpSpanAttributes(
+    span: Span,
+    error: ErrorException,
+    request: Request,
+    captured: CapturedBodySet,
+    requestId: string,
+  ): void {
+    span.setAttributes({
+      // 1. HTTP semconv
+      [ATTR_HTTP_ROUTE]: this.resolveRoute(request),
+      [ATTR_HTTP_REQUEST_METHOD]: request.method,
+      [ATTR_HTTP_RESPONSE_STATUS_CODE]: error.statusCode,
+      'http.method': request.method,
+      'http.status_code': error.statusCode,
+      // 2. Error envelope
+      error: true,
+      'error.class': error.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR ? '5xx' : '4xx',
+      'error.code': error.code,
+      'error.user_facing': error.definition.userFacing,
+      'error.retryable': error.definition.retryable,
+      // 4. Correlation (populated when RequestIdMiddleware ran)
+      ...(requestId ? { 'request.id': requestId } : {}),
+    });
+
+    // 3. Captured context — attach only what exists.
+    if (captured.requestBody) {
+      span.setAttribute('http.request.body_redacted', captured.requestBody);
+    }
+    if (captured.requestHeaders) {
+      span.setAttribute('http.request.headers_redacted', captured.requestHeaders);
+    }
+    if (captured.requestQuery) {
+      span.setAttribute('http.request.query_redacted', captured.requestQuery);
+    }
+    if (captured.responseBody) {
+      span.setAttribute('http.response.body_redacted', captured.responseBody);
+    }
+  }
+
+  /**
+   * Resolves the route label for `http.route`. Prefers the router-resolved
+   * pattern (`req.route.path`) when present — that is the Nest-canonical
+   * value, identical to what the `TraceEnrichmentInterceptor` sets for
+   * successful requests. When the router has NOT resolved a pattern (the
+   * error was thrown in middleware before the router ran), we fall back to
+   * `normalisePath(req.url)` so id-bearing raw URLs don't explode Tempo's
+   * cardinality.
+   */
+  private resolveRoute(req: Request): string {
+    const resolved = (req as Request & { route?: { path?: string } }).route?.path;
+    if (resolved) return resolved;
+    const rawPath = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    return normalisePath(rawPath);
   }
 
   /**

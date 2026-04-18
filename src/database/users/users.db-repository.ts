@@ -3,6 +3,7 @@ import { Prisma, User } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { BaseRepository } from '@database/base.repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Shape the MockAuthMiddleware reads — the user's id, tenant, and direct
@@ -20,6 +21,7 @@ export interface UserAuthContext {
  * Repository for the User model. Only file outside src/database that touches
  * Prisma's user delegate.
  */
+@InstrumentClass()
 @Injectable()
 export class UsersDbRepository extends BaseRepository<
   User,

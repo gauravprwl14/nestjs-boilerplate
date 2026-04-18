@@ -3,6 +3,7 @@ import { Prisma, Tweet, TweetVisibility } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { BaseRepository } from '@database/base.repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /** Row shape returned by findTimelineForUser — snake_case from raw SQL. */
 export interface TimelineRow {
@@ -19,6 +20,7 @@ export interface TimelineRow {
  * through the tenant-scope extension (`prisma.tenantScoped`); raw SQL does not,
  * so the timeline query hard-codes `companyId` in every predicate.
  */
+@InstrumentClass()
 @Injectable()
 export class TweetsDbRepository extends BaseRepository<
   Tweet,

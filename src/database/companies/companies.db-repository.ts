@@ -3,11 +3,13 @@ import { Prisma, Company } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import { BaseRepository } from '@database/base.repository';
 import { DbTransactionClient } from '@database/types';
+import { InstrumentClass } from '@telemetry/decorators/instrument-class.decorator';
 
 /**
  * Repository for the Company model. Only file outside src/database that
  * touches Prisma's company delegate.
  */
+@InstrumentClass()
 @Injectable()
 export class CompaniesDbRepository extends BaseRepository<
   Company,
