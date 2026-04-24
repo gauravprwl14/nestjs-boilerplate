@@ -3,7 +3,7 @@ import { OrdersRepository } from './orders.repository';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { Order, PaginatedOrders } from './interfaces/order-response.interface';
 import { OrderWithItems } from '@database/interfaces';
-import { AppLogger } from '@logger/logger.delegate';
+import { AppLogger } from '@logger/logger.service';
 import { ErrorException } from '@errors/types/error-exception';
 import { DAT } from '@errors/error-codes';
 

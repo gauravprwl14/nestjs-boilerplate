@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MultiDbService } from '@database/multi-db.service';
-import { AppLogger } from '@logger/logger.delegate';
+import { AppLogger } from '@logger/logger.service';
 
 @Injectable()
 export class PartitionRotationService {

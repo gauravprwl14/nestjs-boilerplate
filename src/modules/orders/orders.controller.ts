@@ -28,7 +28,7 @@ export class OrdersController {
   }
 
   @Post()
-  @ApiEndpoint({ summary: 'Create a new order (writes to primary DB only)', status: 201 })
+  @ApiEndpoint({ summary: 'Create a new order (writes to primary DB only)', successStatus: 201 })
   async createOrder(
     @Body(new ZodValidationPipe(createOrderSchema)) dto: CreateOrderDto,
     @Query('userId', ParseIntPipe) userId: number,

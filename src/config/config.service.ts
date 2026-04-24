@@ -90,7 +90,8 @@ export class AppConfigService {
    */
   get get() {
     return <K extends keyof EnvConfig>(key: K): EnvConfig[K] =>
-      this.configService.get(key as string, { infer: true }) as EnvConfig[K];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.configService.get(key as any, { infer: true }) as EnvConfig[K];
   }
 
   // ─── Convenience getters ──────────────────────────────────────────────────────

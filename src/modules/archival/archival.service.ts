@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MultiDbService } from '@database/multi-db.service';
 import { ArchiveRegistryService } from '@database/archive-registry.service';
-import { AppLogger } from '@logger/logger.delegate';
+import { AppLogger } from '@logger/logger.service';
 
 interface DbSizeRow {
   size_bytes: string;
