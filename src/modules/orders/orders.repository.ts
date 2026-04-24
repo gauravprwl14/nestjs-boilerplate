@@ -1,13 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { Pool } from 'pg';
 import { MultiDbService } from '@database/multi-db.service';
 import { ArchiveRegistryService } from '@database/archive-registry.service';
-import {
-  UserOrderIndexEntry,
-  OrderRow,
-  OrderItemRow,
-  OrderWithItems,
-} from '@database/interfaces';
+import { UserOrderIndexEntry, OrderRow, OrderItemRow, OrderWithItems } from '@database/interfaces';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
