@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ArchivalController } from './archival.controller';
+import { ArchivalService } from './archival.service';
+import { PartitionRotationService } from './partition-rotation.service';
 
-/** Archival feature module — full implementation in Track D (feat/om-archival). */
-@Module({})
+@Module({
+  controllers: [ArchivalController],
+  providers: [ArchivalService, PartitionRotationService],
+})
 export class ArchivalModule {}
