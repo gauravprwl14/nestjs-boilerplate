@@ -78,6 +78,21 @@ export class AppConfigService {
     };
   }
 
+  // ─── Raw key accessor ─────────────────────────────────────────────────────────
+
+  /**
+   * Typed key accessor — delegates directly to ConfigService.
+   * Prefer the named getters above for most use cases.
+   * Used by MultiDbService / ArchiveRegistryService for dynamic key access.
+   *
+   * @param key - A key from EnvConfig
+   * @returns The typed config value for the key
+   */
+  get get() {
+    return <K extends keyof EnvConfig>(key: K): EnvConfig[K] =>
+      this.configService.get(key as string, { infer: true }) as EnvConfig[K];
+  }
+
   // ─── Convenience getters ──────────────────────────────────────────────────────
 
   /** Returns true when running in development mode. */

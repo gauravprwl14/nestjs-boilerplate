@@ -1,6 +1,6 @@
 # Tweets / Timeline Sequence Diagrams
 
-<!-- DOC-SYNC: Diagram created on 2026-04-17. Please verify visual accuracy before committing. -->
+<!-- DOC-SYNC: Diagram updated on 2026-04-25. NOTE: TweetsModule and DepartmentsModule have been replaced by OrdersModule/ArchivalModule/MockDataModule in feat/observability. These diagrams are now LEGACY — they describe the enterprise-twitter domain which is no longer the active feature set. Retain for reference but do not use as implementation guides for the order-management domain. Please verify visual accuracy before committing. -->
 
 > See `docs/guides/FOR-Tweets.md` for the full feature guide.
 > See `docs/guides/FOR-Multi-Tenancy.md` for the CLS + tenant-scope background.

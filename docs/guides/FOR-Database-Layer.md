@@ -8,42 +8,44 @@
 
 ## 1. Business Use Case
 
-The database layer is the only place in the app that talks to Prisma. Goals:
+The database layer manages a **multi-tier storage topology** for large-scale
+order management. Prisma is used only for schema migrations; all runtime
+queries use raw `pg.Pool` instances managed by `MultiDbService`. Goals:
 
-- **Single responsibility** — feature services contain business logic;
-  they never write SQL or touch the `@prisma/client` delegate directly.
-- **Tenant isolation** — tenant-scoped aggregates read and write via
-  `PrismaService.tenantScoped` (Prisma `$extends`-wrapped client). Services
-  that need to act outside tenant scope (user lookup by `x-user-id`, company
-  lookup) use the plain `PrismaService` client.
-- **Transaction safety** — `DatabaseService.runInTransaction()` lets feature
-  services compose multiple `*DbService` calls atomically. The transaction
-  client is tenant-scoped too.
-- **Testability** — each `*DbService` and `*DbRepository` can be mocked in
-  isolation.
-- **Encapsulation** — feature code never imports from `@prisma/client` for
-  query types — `DbTransactionClient` (in `src/database/types.ts`) is the
-  only Prisma-adjacent type that crosses the boundary.
+- **Tier routing** — write all orders to the primary pool; distribute reads
+  round-robin across replicas; route archival lookups to the metadata pool
+  (tier 3) or per-year cold-archive pools (tier 4) via `ArchiveRegistryService`.
+- **Single responsibility** — feature services contain business logic; they
+  call `MultiDbService.getPrimaryPool()` / `getReadPool()` / `getMetadataPool()`
+  / `getArchivePool()` and run raw SQL directly (no ORM delegate abstraction
+  for runtime queries).
+- **Lazy archive pool init** — cold-archive `pg.Pool` instances are created
+  on first access, keyed by `"host:port:database"`.
+- **Registry-driven routing** — `ArchiveRegistryService` loads the
+  `archive_databases` table on startup and provides `getPoolForYear(year, tier)`.
+- **Testability** — `MultiDbService` and `ArchiveRegistryService` can be mocked
+  independently.
 
 ---
 
 ## 2. Flow Diagram
 
 ```
-Feature Service (TweetsService, DepartmentsService, …)
+Feature Service (OrdersService, ArchivalService, …)
     │
-    ├─ inject *DbService  (e.g. TweetsDbService)
+    ├─ inject MultiDbService
     │       │
-    │       └─ delegates to *DbRepository (e.g. TweetsDbRepository)
-    │               │
-    │               ├─ tenant-scoped reads/writes  → prisma.tenantScoped.<model>
-    │               ├─ non-tenant reads            → prisma.<model>  (Users, Companies)
-    │               └─ raw SQL (timeline)          → prisma.$queryRaw  (extension bypassed; hard-coded companyId)
+    │       ├─ getPrimaryPool()   → primary pg.Pool  (writes)
+    │       ├─ getReadPool()      → replica-1 or replica-2 (round-robin reads)
+    │       ├─ getMetadataPool()  → metadata pg.Pool (warm tier 3 reads)
+    │       └─ getArchivePool(host, port, db) → lazily-created cold pg.Pool (tier 4)
     │
-    └─ inject DatabaseService (cross-aggregate transactions)
+    └─ inject ArchiveRegistryService
             │
-            └─ prisma.tenantScoped.$transaction(fn) — the `tx` threaded through
-              *DbService calls is the tenant-scoped transaction client
+            ├─ loads archive_databases table from primary on startup
+            ├─ getArchiveForYear(year, tier) → ArchiveDbConfig | undefined
+            ├─ getPoolForYear(year, tier)    → pg.Pool | undefined  (convenience combo)
+            └─ getPoolForArchive(cfg)        → pg.Pool
 ```
 
 ---
@@ -53,108 +55,96 @@ Feature Service (TweetsService, DepartmentsService, …)
 ```
 src/database/
 ├── prisma/
-│   ├── schema.prisma                 # Prisma schema (source of truth)
-│   └── migrations/                   # `init_enterprise_twitter`
-├── base.repository.ts                # Abstract base class for all repositories
-├── database.module.ts                # @Global(); registers every DbRepository/DbService
-├── database.service.ts               # Exposes runInTransaction(); nothing else
-├── types.ts                          # DbTransactionClient type alias
-├── prisma.service.ts                 # OnModuleInit; `tenantScoped` getter builds $extends client lazily
-├── extensions/
-│   └── tenant-scope.extension.ts     # Prisma $extends — injects/asserts companyId
-├── users/
-│   ├── users.db-repository.ts        # findAuthContext (plain client — runs before CLS tenant context)
-│   └── users.db-service.ts
-├── companies/
-│   ├── companies.db-repository.ts    # findById (plain client — Company IS the tenant)
-│   └── companies.db-service.ts
-├── departments/
-│   ├── departments.db-repository.ts  # Tenant-scoped (prisma.tenantScoped.department)
-│   └── departments.db-service.ts
-└── tweets/
-    ├── tweets.db-repository.ts       # Tenant-scoped delegate writes + raw-SQL timeline query
-    └── tweets.db-service.ts
+│   ├── schema.prisma                 # Prisma schema (migrations only — Product/OrderRecent/OrderItemRecent/UserOrderIndex/ArchiveDatabase/PartitionSimulation)
+│   └── migrations/                   # Prisma migration history
+├── database.module.ts                # @Global(); registers MultiDbService + ArchiveRegistryService
+├── prisma.service.ts                 # PrismaService (used for migrations; NOT used for runtime queries)
+├── interfaces/index.ts               # PoolConfig, ArchiveDbConfig, DbTier, OrderRow, OrderItemRow, OrderWithItems, UserOrderIndexEntry
+├── multi-db.service.ts               # Manages primary, replica, metadata, and archive pg.Pool instances
+└── archive-registry.service.ts       # Loads archive_databases on startup; year+tier → pg.Pool routing
 ```
+
+> Note: `base.repository.ts`, `database.service.ts`, `types.ts`,
+> `extensions/tenant-scope.extension.ts`, and the per-entity
+> `users/`, `companies/`, `departments/`, `tweets/` subdirectories were
+> removed as part of the pivot to raw-`pg` multi-tier architecture.
 
 ---
 
 ## 4. Key Methods
 
-### BaseRepository
+### MultiDbService
 
-Same API as before: `create`, `findUnique`, `findFirst`, `findMany`,
-`findManyPaginated`, `update`, `delete`, `softDelete`, `restore`, `count`,
-`exists`, `withTransaction`. All methods accept an optional `tx?: DbTransactionClient`.
+| Method                                 | Description                                                                                                                               |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPrimaryPool()`                     | Returns the primary `pg.Pool` (max 20 connections) — use for all writes                                                                   |
+| `getReadPool()`                        | Returns next replica `pg.Pool` via round-robin (replica-1 or replica-2, max 15 each); falls back to primary if no replicas are configured |
+| `getMetadataPool()`                    | Returns the metadata (warm tier 3) `pg.Pool` (max 10)                                                                                     |
+| `getArchivePool(host, port, database)` | Returns a lazily-created cold-archive `pg.Pool` (max 5) keyed by `"host:port:database"`                                                   |
+| `onModuleInit()`                       | Connects all fixed pools and verifies primary with `SELECT 1`                                                                             |
+| `onModuleDestroy()`                    | Ends all pools gracefully on shutdown                                                                                                     |
 
-Subclasses implement one abstract method:
+### ArchiveRegistryService
 
-```typescript
-protected abstract delegateFor(
-  client: PrismaService | DbTransactionClient,
-): PrismaDelegate<…>;
-```
+| Method                          | Description                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `loadRegistry()`                | Queries `archive_databases WHERE is_active = true` from primary; rebuilds in-memory `Map<year, ArchiveDbConfig[]>` |
+| `getArchiveForYear(year, tier)` | Returns the matching `ArchiveDbConfig` or `undefined`                                                              |
+| `getPoolForArchive(cfg)`        | Returns the `pg.Pool` for a given `ArchiveDbConfig`                                                                |
+| `getPoolForYear(year, tier)`    | Convenience combo — resolves year+tier to a pool in one call                                                       |
+| `getAllArchives()`              | Returns the full in-memory `Map<number, ArchiveDbConfig[]>`                                                        |
 
-Tenant-scoped repositories route through `prisma.tenantScoped` when the
-client is the plain `PrismaService` (see `DepartmentsDbRepository` and
-`TweetsDbRepository` for the idiom).
+### Key Interfaces (`src/database/interfaces/index.ts`)
 
-### DatabaseService
-
-| Method                            | Description |
-|-----------------------------------|-------------|
-| `runInTransaction(fn, options?)`  | Execute callback atomically on the tenant-scoped client; pass `tx` into every `*DbService` call inside |
-
-### UsersDbService
-
-| Method                            | Description |
-|-----------------------------------|-------------|
-| `findAuthContext(id, tx?)`        | Returns `{ id, companyId, email, name, departmentIds }` or `null`. Used by `MockAuthMiddleware` — runs on the plain client (not tenant-scoped; user lookup happens before CLS is populated) |
-
-### CompaniesDbService
-
-| Method                            | Description |
-|-----------------------------------|-------------|
-| `findById(id, tx?)`               | `Company | null`. Companies are the tenant record itself, so this uses the plain client |
-
-### DepartmentsDbService
-
-| Method                                          | Description |
-|-------------------------------------------------|-------------|
-| `findManyByCompany(companyId, tx?)`             | Alphabetical list, tenant-scoped |
-| `findByIdInCompany(id, companyId, tx?)`         | `Department | null` in the caller's tenant |
-| `findExistingIdsInCompany(ids, companyId, tx?)` | Subset of requested ids that exist in the tenant (used to detect cross-tenant references; length mismatch → `VAL0008`) |
-| `create(input, tx?)`                            | Flat create — tenant-scope extension injects/asserts `companyId` |
-
-### TweetsDbService
-
-| Method                                                  | Description |
-|---------------------------------------------------------|-------------|
-| `createWithTargets({ companyId, authorId, content, visibility, departmentIds })` | Wraps `TweetsDbRepository.createTweet` + `createTargets` in `runInTransaction`. Flat payloads only (no nested-connect into tenant-scoped relations) |
-| `findTimelineForUser(userId, companyId, limit, tx?)`    | Delegates to the raw-SQL recursive-CTE query; returns `TimelineRow[]` (snake_case) |
+| Interface             | Purpose                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------- | --- | -------------------------- |
+| `PoolConfig`          | Config shape for creating a `pg.Pool`                                                    |
+| `ArchiveDbConfig`     | Row from `archive_databases` (id, archiveYear, databaseName, host, port, tier, isActive) |
+| `DbTier`              | Union `2                                                                                 | 3   | 4` (hot=2, warm=3, cold=4) |
+| `UserOrderIndexEntry` | Row from `user_order_index` table                                                        |
+| `OrderRow`            | Raw order row from any tier                                                              |
+| `OrderItemRow`        | Raw order-item row from any tier                                                         |
+| `OrderWithItems`      | `OrderRow` extended with `items`, `tier`, `tierName`, `archive_location`                 |
 
 ---
 
 ## 5. Error Cases
 
-The database layer does not throw domain `ErrorException`s of its own —
-feature services translate `null` returns to `ErrorException.notFound(...)`,
-and Prisma errors are handled by `AllExceptionsFilter` via
-`handlePrismaError()`.
+The database layer does not throw domain `ErrorException`s of its own.
+Feature services are responsible for translating pool/query errors via
+`ErrorException.wrap(err)` or `ErrorException.internal(cause)`.
 
-Exception: `tenantScopeExtension` throws `AUZ.CROSS_TENANT_ACCESS` when:
-- a tenant-scoped op is attempted without `companyId` in CLS and without an
-  explicit `BYPASS_TENANT_SCOPE` flag, or
-- a write payload carries a `companyId` that disagrees with CLS.
+`ArchiveRegistryService.onModuleInit()` propagates any pool or query
+errors from `loadRegistry()` — a startup failure here will prevent the
+app from booting (fail-fast for misconfigured DB topology).
 
 ---
 
 ## 6. Configuration
 
-No additional configuration is required — the database layer is wired through
-`DatabaseModule` which imports `PrismaModule`. Both are `@Global()`, so every
-`*DbService` export is available to every feature module without adding imports.
+`MultiDbService` reads all pool settings via `AppConfigService.get` (typed
+key accessor). Required env vars for the database layer:
 
-`PrismaService.tenantScoped` is built lazily on first access via
-`this.$extends(tenantScopeExtension(this.cls))` — the extension function
-receives the request-scoped `ClsService` so it can read `companyId` on every
-query without being re-wired per request.
+| Variable               | Default               | Purpose                                          |
+| ---------------------- | --------------------- | ------------------------------------------------ |
+| `DATABASE_URL`         | (required)            | Prisma migrations (primary DB connection string) |
+| `DB_PRIMARY_HOST`      | `localhost`           | Primary DB host                                  |
+| `DB_PRIMARY_PORT`      | `5432`                | Primary DB port                                  |
+| `DB_PRIMARY_NAME`      | `primary_db`          | Primary DB name                                  |
+| `DB_PRIMARY_USER`      | `ecom_user`           | Primary DB user                                  |
+| `DB_PRIMARY_PASSWORD`  | `ecom_pass`           | Primary DB password                              |
+| `DB_REPLICA_1_HOST`    | `localhost`           | Replica 1 host                                   |
+| `DB_REPLICA_1_PORT`    | `5433`                | Replica 1 port                                   |
+| `DB_REPLICA_2_HOST`    | `localhost`           | Replica 2 host                                   |
+| `DB_REPLICA_2_PORT`    | `5434`                | Replica 2 port                                   |
+| `DB_METADATA_HOST`     | `localhost`           | Metadata (warm) DB host                          |
+| `DB_METADATA_PORT`     | `5435`                | Metadata DB port                                 |
+| `DB_METADATA_NAME`     | `metadata_archive_db` | Metadata DB name                                 |
+| `DB_METADATA_USER`     | `ecom_user`           | Metadata DB user                                 |
+| `DB_METADATA_PASSWORD` | `ecom_pass`           | Metadata DB password                             |
+| `REDIS_HOST`           | `localhost`           | Redis host (planned — not yet consumed)          |
+| `REDIS_PORT`           | `6379`                | Redis port (planned — not yet consumed)          |
+
+Cold-archive pool credentials reuse `DB_PRIMARY_USER` / `DB_PRIMARY_PASSWORD`;
+connection details (host, port, database name) come from the `archive_databases`
+table loaded by `ArchiveRegistryService` at startup.

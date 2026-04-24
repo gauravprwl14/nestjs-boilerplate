@@ -24,8 +24,8 @@ doesn't leak data between tenants:
    caller's tenant before any pivot write, producing a clean `VAL0008` instead
    of a schema-level FK error.
 5. **Schema composite FKs** — `(parentId, companyId) → departments(id,
-   companyId)` and `(tweetId, companyId) / (departmentId, companyId) →
-   tweets/departments(id, companyId)` on `TweetDepartment` make cross-tenant
+companyId)` and `(tweetId, companyId) / (departmentId, companyId) →
+tweets/departments(id, companyId)` on `TweetDepartment` make cross-tenant
    hierarchy or targeting physically impossible.
 
 ---
@@ -64,15 +64,16 @@ src/common/
     └── auth-context.guard.ts         # ②  Fail-fast APP_GUARD
 
 src/database/
-├── prisma.service.ts                 # exposes `tenantScoped` (lazily built via $extends)
-└── extensions/
-    └── tenant-scope.extension.ts     # ③  ORM guard
-
-src/database/prisma/schema.prisma     # ⑤  composite FK definitions
+└── prisma.service.ts                 # PrismaService (used for migrations only in this branch)
 ```
 
-Service-level validation (layer ④) is owned by each feature service, e.g.
-`TweetsService.create` uses `DepartmentsDbService.findExistingIdsInCompany`.
+> Note: The Prisma `tenant-scope.extension.ts` (ORM guard, layer ③) and the
+> schema composite FK definitions (layer ⑤) applied to the enterprise-twitter
+> domain (Departments, Tweets). In the order-management pivot, tenant isolation
+> is enforced by service-level userId checks and parameterised SQL queries;
+> there is no Prisma `$extends` guard in this branch.
+
+Service-level validation (layer ④) is owned by each feature service.
 
 ---
 
@@ -98,54 +99,42 @@ Reads `ClsKey.COMPANY_ID`. If absent and the route is not `@Public()`, throws
 
 ### tenantScopeExtension
 
-`TENANT_SCOPED_MODELS` set: `Department`, `UserDepartment`, `Tweet`,
-`TweetDepartment`. `User` and `Company` are **not** in the set because:
+> The Prisma `tenantScopeExtension` (`$extends`) was removed in the
+> `feat/observability` pivot. The order-management domain does not use
+> Prisma for runtime queries, so ORM-level tenant scoping is no longer
+> applicable. Tenant isolation is enforced via parameterised raw SQL
+> (`WHERE user_id = $1`) in feature services.
 
-- `User` identity is resolved by middleware **before** tenant context exists
-  (you need the user row to know which company they belong to).
-- `Company` **is** the tenant record itself.
+### Known isolation blindspots (current branch)
 
-Reads: inject `where.companyId` from CLS. Writes:
-- Missing `companyId` on `create`/`createMany` → injected from CLS.
-- Missing on `update`/`upsert-update`/`updateMany` → allowed (unchanged).
-- Supplied `companyId` that disagrees with CLS → throw `AUZ.CROSS_TENANT_ACCESS`.
-
-`ClsKey.BYPASS_TENANT_SCOPE = true` lets seed scripts run; NEVER set this
-from request-scoped code.
-
-### Known ORM blindspots
-
-- **Raw SQL (`$queryRaw`/`$executeRaw`)** bypasses `$extends`. The only raw
-  query in the app is `findTimelineForUser`; it hard-codes `company_id =
-  ${companyId}` in every predicate and CTE.
-- **Nested writes via `connect`** are NOT validated by the extension. Services
-  never do nested-connect into tenant-scoped relations — `TweetsService.create`
-  pre-validates `departmentIds` via `findExistingIdsInCompany` (which is
-  extension-scoped → cross-tenant rows silently drop → length mismatch →
-  `VAL0008`) and then writes a flat `createMany` with explicit `companyId` on
-  every row.
+- **Raw SQL** — all queries must include explicit `user_id` / `order_id`
+  predicates. There is no automatic injection layer; services are responsible
+  for passing the CLS `userId` into every query.
+- **Pool routing** — cold-archive pools are shared across all users on the
+  same cold-archive DB. Row-level isolation depends on the `user_id` predicate
+  in each query.
 
 ---
 
 ## 5. Error Cases
 
-| Scenario                                      | Error Code  | HTTP Status |
-|-----------------------------------------------|-------------|-------------|
-| Missing `x-user-id` header                    | `AUT0001`   | 401 |
-| Unknown user id in `x-user-id`                | `AUT0001`   | 401 |
-| Guard reached without `companyId` in CLS      | `AUT0001`   | 401 |
-| Write payload carries a different `companyId` than CLS | `AUZ0004` | 403 |
-| Tenant-scoped op attempted without CLS context or explicit bypass | `AUZ0004` | 403 |
-| Referenced department not in caller's company | `VAL0008`   | 400 |
+| Scenario                                                          | Error Code | HTTP Status |
+| ----------------------------------------------------------------- | ---------- | ----------- |
+| Missing `x-user-id` header                                        | `AUT0001`  | 401         |
+| Unknown user id in `x-user-id`                                    | `AUT0001`  | 401         |
+| Guard reached without `companyId` in CLS                          | `AUT0001`  | 401         |
+| Write payload carries a different `companyId` than CLS            | `AUZ0004`  | 403         |
+| Tenant-scoped op attempted without CLS context or explicit bypass | `AUZ0004`  | 403         |
+| Referenced department not in caller's company                     | `VAL0008`  | 400         |
 
 ---
 
 ## 6. Configuration
 
-| Mechanism                    | Purpose |
-|------------------------------|---------|
-| `USER_ID_HEADER` constant    | Header name (`x-user-id`) — `src/common/constants/app.constants.ts` |
-| `ClsKey` enum                | Typed keys for CLS access — `src/common/cls/cls.constants.ts` |
-| `AppClsModule`               | Imported FIRST in `AppModule.imports` to seed AsyncLocalStorage for every request |
+| Mechanism                 | Purpose                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `USER_ID_HEADER` constant | Header name (`x-user-id`) — `src/common/constants/app.constants.ts`               |
+| `ClsKey` enum             | Typed keys for CLS access — `src/common/cls/cls.constants.ts`                     |
+| `AppClsModule`            | Imported FIRST in `AppModule.imports` to seed AsyncLocalStorage for every request |
 
 No runtime env var specific to tenancy. `DATABASE_URL` is required for Prisma.

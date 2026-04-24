@@ -4,124 +4,92 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
+// Prisma is used ONLY for schema migrations on the primary DB.
+// Runtime queries use raw pg pools via MultiDbService.
+// These models mirror the SQL in init-scripts/primary-init.sql.
 
-enum TweetVisibility {
-  COMPANY
-  DEPARTMENTS
-  DEPARTMENTS_AND_SUBDEPARTMENTS
+model Product {
+  productId         BigInt  @id @default(autoincrement()) @map("product_id")
+  name              String  @db.VarChar(255)
+  sku               String  @unique @db.VarChar(50)
+  category          String  @db.VarChar(100)
+  price             Decimal @db.Decimal(10, 2)
+  brand             String? @db.VarChar(100)
+  totalOrdersCount  Int     @default(0) @map("total_orders_count")
+  recentOrdersCount Int     @default(0) @map("recent_orders_count")
+
+  @@map("products")
 }
 
-// ─── Models ───────────────────────────────────────────────────────────────────
+model OrderRecent {
+  orderId         BigInt   @id @default(autoincrement()) @map("order_id")
+  userId          BigInt   @map("user_id")
+  orderNumber     String   @unique @map("order_number") @db.VarChar(50)
+  totalAmount     Decimal  @map("total_amount") @db.Decimal(10, 2)
+  status          String   @db.VarChar(20)
+  shippingAddress Json     @map("shipping_address")
+  paymentMethod   String   @map("payment_method") @db.VarChar(20)
+  paymentLast4    String?  @map("payment_last4") @db.VarChar(4)
+  couponCode      String?  @map("coupon_code") @db.VarChar(50)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-/// A tenant. Every other row is scoped under exactly one Company.
-model Company {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
+  items OrderItemRecent[]
 
-  users       User[]
-  departments Department[]
-  tweets      Tweet[]
-
-  @@map("companies")
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("orders_recent")
 }
 
-/// A user belongs to one Company and optionally many Departments.
-/// Mock-auth uses the bare user.id passed via x-user-id header.
-model User {
-  id        String   @id @default(uuid())
-  companyId String   @map("company_id")
-  email     String   @unique
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model OrderItemRecent {
+  itemId         BigInt   @id @default(autoincrement()) @map("item_id")
+  orderId        BigInt   @map("order_id")
+  productId      BigInt   @map("product_id")
+  quantity       Int
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(10, 2)
+  discountAmount Decimal  @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(10, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  departments UserDepartment[]
-  tweets      Tweet[]
+  order OrderRecent @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
 
-  @@index([companyId])
-  @@map("users")
+  @@index([orderId])
+  @@map("order_items_recent")
 }
 
-/// Department tree, adjacency-list style (parentId self-FK).
-/// The composite FK on (parentId, companyId) is the DB-level guarantee that
-/// a department's parent MUST live in the same company — preventing cross-tenant
-/// hierarchy poisoning even if a service layer bug slips past validation.
-model Department {
-  id        String   @id @default(uuid())
-  companyId String   @map("company_id")
-  parentId  String?  @map("parent_id")
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
+model UserOrderIndex {
+  userId          BigInt   @map("user_id")
+  orderId         BigInt   @map("order_id")
+  createdAt       DateTime @map("created_at")
+  tier            Int
+  archiveLocation String?  @map("archive_location") @db.VarChar(100)
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent  Department? @relation("DepartmentHierarchy", fields: [parentId, companyId], references: [id, companyId], onDelete: SetNull)
-  children Department[] @relation("DepartmentHierarchy")
-
-  members UserDepartment[]
-  tweets  TweetDepartment[]
-
-  // Composite unique lets other tables form a same-company composite FK into this row.
-  @@unique([id, companyId])
-  @@index([companyId])
-  @@index([parentId])
-  @@map("departments")
+  @@id([userId, createdAt, orderId])
+  @@index([orderId])
+  @@map("user_order_index")
 }
 
-/// Join table: which departments does a user belong to?
-/// companyId is denormalized so the tenant-scope Prisma extension can filter uniformly.
-model UserDepartment {
-  userId       String   @map("user_id")
-  departmentId String   @map("department_id")
-  companyId    String   @map("company_id")
-  assignedAt   DateTime @default(now()) @map("assigned_at")
+model ArchiveDatabase {
+  id           Int      @id @default(autoincrement())
+  archiveYear  Int      @map("archive_year")
+  databaseName String   @map("database_name") @db.VarChar(100)
+  host         String   @db.VarChar(255)
+  port         Int      @default(5432)
+  tier         Int
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-
-  @@id([userId, departmentId])
-  @@index([companyId])
-  @@index([departmentId])
-  @@map("user_departments")
+  @@map("archive_databases")
 }
 
-/// A short message.
-model Tweet {
-  id         String          @id @default(uuid())
-  companyId  String          @map("company_id")
-  authorId   String          @map("author_id")
-  content    String          @db.VarChar(280)
-  visibility TweetVisibility
-  createdAt  DateTime        @default(now()) @map("created_at")
+model PartitionSimulation {
+  id            Int       @id @default(autoincrement())
+  partitionDate DateTime  @map("partition_date") @db.Date
+  isRotated     Boolean   @default(false) @map("is_rotated")
+  rotatedAt     DateTime? @map("rotated_at")
+  recordsMoved  Int       @default(0) @map("records_moved")
 
-  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  author  User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  targets TweetDepartment[]
-
-  // Composite unique lets tweet_departments form a same-company composite FK into this row.
-  @@unique([id, companyId])
-  @@index([companyId, createdAt(sort: Desc)])
-  @@index([authorId])
-  @@map("tweets")
-}
-
-/// Which departments is a department-scoped tweet targeted at?
-/// Empty for COMPANY visibility. Composite FKs to both tweets and departments
-/// enforce that every targeted department shares the tweet's company.
-model TweetDepartment {
-  tweetId      String @map("tweet_id")
-  departmentId String @map("department_id")
-  companyId    String @map("company_id")
-
-  tweet      Tweet      @relation(fields: [tweetId, companyId], references: [id, companyId], onDelete: Cascade)
-  department Department @relation(fields: [departmentId, companyId], references: [id, companyId], onDelete: Cascade)
-
-  @@id([tweetId, departmentId])
-  @@index([companyId])
-  @@index([departmentId])
-  @@map("tweet_departments")
+  @@map("partition_simulation")
 }
