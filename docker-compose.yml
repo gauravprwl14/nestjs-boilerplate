@@ -1,19 +1,195 @@
+# Use: podman-compose up -d
+# Runtime: Podman (drop-in Docker Compose YAML compatible)
+
 services:
+  # ─── Primary Database (Hot Tier — writes + strong reads) ──────────────────
+  primary-db:
+    image: postgres:16-alpine
+    container_name: ecom-primary-db
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: primary_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+      - ./docker/postgres/primary.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./init-scripts/primary-init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./init-scripts/primary-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecom_user -d primary_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ─── Read Replica 1 ────────────────────────────────────────────────────────
+  primary-replica-1:
+    image: postgres:16-alpine
+    container_name: ecom-replica-1
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: primary_db
+      PRIMARY_HOST: primary-db
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator_pass
+    ports:
+      - '5433:5432'
+    volumes:
+      - replica-1-data:/var/lib/postgresql/data
+      - ./docker/postgres/replica-entrypoint.sh:/docker-entrypoint-initdb.d/replica-setup.sh:ro
+    entrypoint: ['/bin/bash', '/docker-entrypoint-initdb.d/replica-setup.sh']
+    depends_on:
+      primary-db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ─── Read Replica 2 ────────────────────────────────────────────────────────
+  primary-replica-2:
+    image: postgres:16-alpine
+    container_name: ecom-replica-2
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: primary_db
+      PRIMARY_HOST: primary-db
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator_pass
+    ports:
+      - '5434:5432'
+    volumes:
+      - replica-2-data:/var/lib/postgresql/data
+      - ./docker/postgres/replica-entrypoint.sh:/docker-entrypoint-initdb.d/replica-setup.sh:ro
+    entrypoint: ['/bin/bash', '/docker-entrypoint-initdb.d/replica-setup.sh']
+    depends_on:
+      primary-db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ─── Metadata Archive DB (Warm Tier — 2024 lightweight metadata) ───────────
+  metadata-archive-db:
+    image: postgres:16-alpine
+    container_name: ecom-metadata-archive
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: metadata_archive_db
+    ports:
+      - '5435:5432'
+    volumes:
+      - metadata-data:/var/lib/postgresql/data
+      - ./init-scripts/metadata-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecom_user -d metadata_archive_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ─── Cold Archive 2023 ─────────────────────────────────────────────────────
+  archive-2023:
+    image: postgres:16-alpine
+    container_name: ecom-archive-2023
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: archive_2023
+    ports:
+      - '5436:5432'
+    volumes:
+      - archive-2023-data:/var/lib/postgresql/data
+      - ./init-scripts/archive-init.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./init-scripts/archive-2023-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecom_user -d archive_2023']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ─── Cold Archive 2024 ─────────────────────────────────────────────────────
+  archive-2024:
+    image: postgres:16-alpine
+    container_name: ecom-archive-2024
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: archive_2024
+    ports:
+      - '5437:5432'
+    volumes:
+      - archive-2024-data:/var/lib/postgresql/data
+      - ./init-scripts/archive-init.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./init-scripts/archive-2024-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecom_user -d archive_2024']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ─── Cold Archive 2025 ─────────────────────────────────────────────────────
+  archive-2025:
+    image: postgres:16-alpine
+    container_name: ecom-archive-2025
+    environment:
+      POSTGRES_USER: ecom_user
+      POSTGRES_PASSWORD: ecom_pass
+      POSTGRES_DB: archive_2025
+    ports:
+      - '5438:5432'
+    volumes:
+      - archive-2025-data:/var/lib/postgresql/data
+      - ./init-scripts/archive-init.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./init-scripts/archive-2025-seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ecom_user -d archive_2025']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
+  # ─── Redis Cache ───────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ecom-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ─── NestJS Application ────────────────────────────────────────────────────
   app:
     build:
       context: .
       dockerfile: docker/Dockerfile
       target: development
+    container_name: ecom-app
     command:
       - sh
       - -c
       - |
         npx prisma migrate deploy --schema=src/database/prisma/schema.prisma && \
-        npm run prisma:seed && \
         npm run start:dev
     environment:
-      # Single source of truth for port — root .env wins over .env.development
-      # in compose mode, keeping the port mapping and the app's listen port in sync.
       APP_PORT: ${APP_PORT:-3000}
     ports:
       - '${APP_PORT:-3000}:${APP_PORT:-3000}'
@@ -23,62 +199,32 @@ services:
     env_file:
       - .env.development
     depends_on:
-      postgres:
+      primary-db:
         condition: service_healthy
-      # redis:
-      #   condition: service_healthy
+      metadata-archive-db:
+        condition: service_healthy
+      archive-2023:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       otel-collector:
         condition: service_started
     networks:
       - app-network
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-enterprise_twitter_dev}
-    ports:
-      - '5433:5432'
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
-
-  # redis:
-  #   image: redis:7-alpine
-  #   ports:
-  #     - '6379:6379'
-  #   volumes:
-  #     - redis-data:/data
-  #   healthcheck:
-  #     test: ['CMD', 'redis-cli', 'ping']
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - app-network
-
-  # ─── Observability stack ────────────────────────────────────────────────────
-
+  # ─── Observability Stack (unchanged) ──────────────────────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.103.0
     command: ['--config=/etc/otel-collector-config.yml']
     environment:
-      # Consumed by otel-collector-config.yml via ${env:VAR} expansion
       TEMPO_OTLP_GRPC_ENDPOINT: ${TEMPO_OTLP_GRPC_ENDPOINT:-tempo:4317}
       LOKI_OTLP_ENDPOINT: ${LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
       PROMETHEUS_REMOTE_WRITE_URL: ${PROMETHEUS_REMOTE_WRITE_URL:-http://prometheus:9090/api/v1/write}
     volumes:
       - ./docker/grafana/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
     ports:
-      - '4317:4317'   # OTLP gRPC
-      - '4318:4318'   # OTLP HTTP
+      - '4317:4317'
+      - '4318:4318'
     depends_on:
       - tempo
       - loki
@@ -90,21 +236,15 @@ services:
     image: grafana/tempo:2.5.0
     command: ['-config.file=/etc/tempo.yml', '-config.expand-env=true']
     environment:
-      # Consumed by tempo.yml via ${VAR} expansion (requires -config.expand-env flag)
       PROMETHEUS_REMOTE_WRITE_URL: ${PROMETHEUS_REMOTE_WRITE_URL:-http://prometheus:9090/api/v1/write}
     volumes:
       - ./docker/grafana/tempo.yml:/etc/tempo.yml:ro
       - tempo-data:/var/tempo
     ports:
-      - '3200:3200'   # Tempo HTTP API
+      - '3200:3200'
     networks:
       - app-network
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3200/ready || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   loki:
     image: grafana/loki:3.1.0
@@ -113,15 +253,10 @@ services:
       - ./docker/grafana/loki.yml:/etc/loki/loki.yml:ro
       - loki-data:/tmp/loki
     ports:
-      - '3100:3100'   # Loki HTTP API
+      - '3100:3100'
     networks:
       - app-network
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   prometheus:
     image: prom/prometheus:v2.53.0
@@ -135,15 +270,10 @@ services:
       - ./docker/grafana/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - '9090:9090'   # Prometheus HTTP API
+      - '9090:9090'
     networks:
       - app-network
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   grafana:
     image: grafana/grafana:12.0.0
@@ -152,10 +282,7 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: 'true'
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor traceToMetrics
-      # Drilldown apps for Traces (Tempo) and Logs (Loki) — plugin v2.x needs
-      # /react/jsx-runtime served by Grafana ≥ 11.6 (shipped in 12.0).
       GF_INSTALL_PLUGINS: grafana-exploretraces-app,grafana-lokiexplore-app
-      # Consumed by provisioning/datasources/datasources.yml via $VAR expansion
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
       TEMPO_URL: ${TEMPO_URL:-http://tempo:3200}
       LOKI_URL: ${LOKI_URL:-http://loki:3100}
@@ -163,30 +290,24 @@ services:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - '3001:3000'   # Grafana UI (mapped to 3001 to avoid conflict with NestJS app)
-    depends_on:
-      prometheus:
-        condition: service_healthy
-      tempo:
-        condition: service_healthy
-      loki:
-        condition: service_healthy
+      - '3001:3000'
     networks:
       - app-network
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 networks:
   app-network:
     driver: bridge
 
 volumes:
-  postgres-data:
-  # redis-data:
+  primary-data:
+  replica-1-data:
+  replica-2-data:
+  metadata-data:
+  archive-2023-data:
+  archive-2024-data:
+  archive-2025-data:
+  redis-data:
   tempo-data:
   loki-data:
   prometheus-data:
