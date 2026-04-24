@@ -14,15 +14,6 @@ export class OrdersService {
     private readonly logger: AppLogger,
   ) {}
 
-  /**
-   * Returns a paginated list of orders for a user by querying all three storage
-   * tiers in parallel and merging results sorted by created_at DESC.
-   *
-   * @param userId - The user whose orders to retrieve
-   * @param page - 1-based page number
-   * @param limit - Max orders per page (max 100)
-   * @returns Merged paginated orders with total count
-   */
   async getUserOrders(userId: number, page: number, limit: number): Promise<PaginatedOrders> {
     const offset = (page - 1) * limit;
     const { entries, total } = await this.repo.findIndexByUser(userId, limit, offset);
@@ -50,13 +41,6 @@ export class OrdersService {
     return { orders: allOrders.map(o => this.toResponse(o)), total, page, limit };
   }
 
-  /**
-   * Retrieves a single order by ID, routing to the correct storage tier.
-   *
-   * @param orderId - The order to look up
-   * @returns The order response
-   * @throws ErrorException(DAT.NOT_FOUND) if the order does not exist
-   */
   async getOrderById(orderId: bigint): Promise<Order> {
     const order = await this.repo.findOrderById(orderId);
     if (!order) {
@@ -65,25 +49,12 @@ export class OrdersService {
     return this.toResponse(order);
   }
 
-  /**
-   * Creates a new order on the primary database.
-   *
-   * @param userId - The user placing the order
-   * @param dto - Validated create-order payload
-   * @returns The new order's ID as a string
-   */
   async createOrder(userId: number, dto: CreateOrderDto): Promise<{ orderId: string }> {
     const { orderId } = await this.repo.createOrder(userId, dto);
     this.logger.logEvent('order.created', { attributes: { userId, orderId: orderId.toString() } });
     return { orderId: orderId.toString() };
   }
 
-  /**
-   * Maps a raw OrderWithItems DB row to the public Order response shape.
-   *
-   * @param o - Raw order row from the repository
-   * @returns Formatted Order response object
-   */
   private toResponse(o: OrderWithItems): Order {
     return {
       orderId: o.order_id.toString(),

@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { Pool } from 'pg';
 import { MultiDbService } from '@database/multi-db.service';
 import { ArchiveRegistryService } from '@database/archive-registry.service';
-import { UserOrderIndexEntry, OrderRow, OrderItemRow, OrderWithItems } from '@database/interfaces';
+import {
+  UserOrderIndexEntry,
+  OrderRow,
+  OrderItemRow,
+  OrderWithItems,
+} from '@database/interfaces';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
@@ -11,15 +17,6 @@ export class OrdersRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
-  /**
-   * Queries the user_order_index for all orders belonging to a user,
-   * with pagination.
-   *
-   * @param userId - The user whose orders to look up
-   * @param limit - Max number of index entries to return
-   * @param offset - Pagination offset
-   * @returns Entries with tier/archiveLocation and the total count
-   */
   async findIndexByUser(
     userId: number,
     limit: number,
@@ -47,36 +44,31 @@ export class OrdersRepository {
     };
   }
 
-  /**
-   * Fetches hot (recent) orders plus their items from the primary read replica.
-   *
-   * @param orderIds - List of order IDs to fetch (tier 2)
-   * @returns Orders with items array populated
-   */
   async findHotOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getReadPool();
-    const result = await pool.query<OrderRow>(
-      `SELECT o.order_id, o.user_id, o.order_number, o.total_amount, o.status,
-              o.shipping_address, o.payment_method, o.payment_last4, o.coupon_code,
-              o.created_at, o.updated_at
-       FROM orders_recent o
-       WHERE o.order_id = ANY($1)`,
-      [orderIds],
-    );
-    const itemsResult = await pool.query<OrderItemRow>(
-      `SELECT item_id, order_id, product_id, quantity, unit_price,
-              discount_amount, tax_amount, created_at
-       FROM order_items_recent WHERE order_id = ANY($1)`,
-      [orderIds],
-    );
+    const [ordersRes, itemsRes] = await Promise.all([
+      pool.query<OrderRow>(
+        `SELECT o.order_id, o.user_id, o.order_number, o.total_amount, o.status,
+                o.shipping_address, o.payment_method, o.payment_last4, o.coupon_code,
+                o.created_at, o.updated_at
+         FROM orders_recent o WHERE o.order_id = ANY($1)`,
+        [orderIds],
+      ),
+      pool.query<OrderItemRow>(
+        `SELECT item_id, order_id, product_id, quantity, unit_price,
+                discount_amount, tax_amount, created_at
+         FROM order_items_recent WHERE order_id = ANY($1)`,
+        [orderIds],
+      ),
+    ]);
     const itemsByOrder = new Map<string, OrderItemRow[]>();
-    for (const item of itemsResult.rows) {
+    for (const item of itemsRes.rows) {
       const key = item.order_id.toString();
       if (!itemsByOrder.has(key)) itemsByOrder.set(key, []);
       itemsByOrder.get(key)!.push(item);
     }
-    return result.rows.map(o => ({
+    return ordersRes.rows.map(o => ({
       ...o,
       items: itemsByOrder.get(o.order_id.toString()) ?? [],
       tier: 2 as const,
@@ -84,19 +76,13 @@ export class OrdersRepository {
     }));
   }
 
-  /**
-   * Fetches warm (metadata archive) orders without full item details.
-   *
-   * @param orderIds - List of order IDs to fetch (tier 3)
-   * @returns Orders with empty items arrays
-   */
   async findWarmOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getMetadataPool();
     const result = await pool.query<OrderRow>(
       `SELECT order_id, user_id, order_number, total_amount, status,
-              '{}'::jsonb AS shipping_address, payment_method, NULL AS payment_last4,
-              NULL AS coupon_code, created_at, archived_at AS updated_at
+              '{}'::jsonb AS shipping_address, payment_method,
+              NULL AS payment_last4, NULL AS coupon_code, created_at
        FROM order_metadata_archive WHERE order_id = ANY($1)`,
       [orderIds],
     );
@@ -109,12 +95,6 @@ export class OrdersRepository {
     }));
   }
 
-  /**
-   * Fetches cold (archived) orders grouped by archive location, queried in parallel.
-   *
-   * @param entries - Index entries with archiveLocation (tier 4)
-   * @returns Orders with items from each cold archive
-   */
   async findColdOrders(entries: UserOrderIndexEntry[]): Promise<OrderWithItems[]> {
     if (entries.length === 0) return [];
     const byLocation = new Map<string, bigint[]>();
@@ -131,7 +111,8 @@ export class OrdersRepository {
       const [ordersRes, itemsRes] = await Promise.all([
         pool.query<OrderRow>(
           `SELECT order_id, user_id, order_number, total_amount, status,
-                  shipping_address, payment_method, coupon_code, created_at
+                  shipping_address, payment_method, NULL AS payment_last4,
+                  coupon_code, created_at
            FROM archived_orders WHERE order_id = ANY($1)`,
           [ids],
         ),
@@ -160,12 +141,6 @@ export class OrdersRepository {
     return (await Promise.all(promises)).flat();
   }
 
-  /**
-   * Looks up a single order by ID, routing to the correct storage tier.
-   *
-   * @param orderId - The order to retrieve
-   * @returns The order with items, or null if not found in the index
-   */
   async findOrderById(orderId: bigint): Promise<OrderWithItems | null> {
     const pool = this.db.getReadPool();
     const indexResult = await pool.query<UserOrderIndexEntry>(
@@ -189,14 +164,6 @@ export class OrdersRepository {
     return results[0] ?? null;
   }
 
-  /**
-   * Creates a new order transactionally on the primary DB:
-   * inserts into orders_recent, order_items_recent, and user_order_index.
-   *
-   * @param userId - The user placing the order
-   * @param dto - Validated order payload
-   * @returns The newly created order ID
-   */
   async createOrder(userId: number, dto: CreateOrderDto): Promise<{ orderId: bigint }> {
     const pool = this.db.getPrimaryPool();
     const client = await pool.connect();
@@ -204,10 +171,11 @@ export class OrdersRepository {
       await client.query('BEGIN');
 
       const productIds = dto.items.map(i => i.productId);
-      const productsRes = await client.query<{ product_id: string; price: string; name: string }>(
-        'SELECT product_id, price, name FROM products WHERE product_id = ANY($1)',
-        [productIds],
-      );
+      const productsRes = await client.query<{
+        product_id: string;
+        price: string;
+        name: string;
+      }>('SELECT product_id, price, name FROM products WHERE product_id = ANY($1)', [productIds]);
       const productMap = new Map(productsRes.rows.map(p => [parseInt(p.product_id, 10), p]));
 
       const totalAmount = dto.items.reduce((sum, item) => {
@@ -239,7 +207,8 @@ export class OrdersRepository {
         const unitPrice = parseFloat(product.price);
         const tax = parseFloat((unitPrice * 0.18).toFixed(2));
         await client.query(
-          `INSERT INTO order_items_recent (order_id, product_id, quantity, unit_price, tax_amount)
+          `INSERT INTO order_items_recent
+             (order_id, product_id, quantity, unit_price, tax_amount)
            VALUES ($1,$2,$3,$4,$5)`,
           [orderId, item.productId, item.quantity, unitPrice, tax],
         );
