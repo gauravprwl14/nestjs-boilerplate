@@ -50,7 +50,9 @@ src/
 ├── telemetry/                     # OTel SDK (traces + metrics + logs), TelemetryService, @Trace/@InstrumentClass; `otel-preload.ts` is the side-effect module imported first in main.ts
 └── modules/
     ├── departments/               # /api/v1/departments, /departments/tree
-    └── tweets/                    # /api/v1/tweets, /api/v1/timeline
+    ├── tweets/                    # /api/v1/tweets, /api/v1/timeline
+    ├── archival/                  # /api/v1/admin/archival — partition rotation + tier stats (ArchivalService + PartitionRotationService)
+    └── mock-data/                 # /api/v1/mock-data — data status + seeding trigger (MockDataService)
 
 prisma/
 └── seed.ts                        # 3 companies, up-to-4-level dept trees, 16 users + visibility-matrix tweets (idempotent — no-ops if data exists)
@@ -86,6 +88,8 @@ test/
 | Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                          |
 | Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                         |
 | Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                        |
+| Work on archival or partition rotation              | `docs/guides/FOR-Archival.md`, `docs/architecture/service-architecture.md`                                                         |
+| Work on mock data endpoints                         | `docs/guides/FOR-MockData.md`                                                                                                      |
 | Plan a new feature                                  | `docs/plans/template.md`                                                                                                           |
 
 ---

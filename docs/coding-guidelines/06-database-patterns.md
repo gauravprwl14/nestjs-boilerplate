@@ -17,6 +17,8 @@ PrismaService   (plain client + `tenantScoped` getter that returns a $extends-wr
 - **`DatabaseModule`** (`@Global()`) — registers all `*DbRepository` + `*DbService` providers; exports the `*DbService` classes and `DatabaseService`.
 - **`DatabaseService`** — exposes only `runInTransaction(fn)` for cross-aggregate atomic operations. Internally runs the transaction on `prisma.tenantScoped` so the tx client is also tenant-scoped.
 - **`*DbService`** — one per aggregate (users, companies, departments, tweets); injected by feature services; thin delegation over the repository.
+- **`MultiDbService`** — manages multiple raw `pg` pools (primary, read replica, metadata archive, cold archive connections); used by archival and mock-data modules for cross-database operations.
+- **`ArchiveRegistryService`** — maintains a registry of cold archive database configs keyed by year; provides `getArchiveForYear(year, tier)`, `getAllArchives()`, and `getPoolForArchive(cfg)` helpers.
 - **`*DbRepository`** — extends `BaseRepository`; implements `delegateFor(client)` to return the correct Prisma delegate; contains all SQL-level queries. Tenant-scoped repositories route through `prisma.tenantScoped` when the caller passed the plain root client.
 - **`DbTransactionClient`** (`src/database/types.ts`) — opaque alias for `Prisma.TransactionClient`; feature code never imports from `@prisma/client` for transaction types.
 

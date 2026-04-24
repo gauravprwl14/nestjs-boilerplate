@@ -83,8 +83,22 @@ Last updated: 2026-04-17
 - [x] ThrottlerModule (rate limiting)
 - [x] `@ApiAuth()` / `@Roles()` decorators and `signature-verification.middleware.ts`
 
+### Observability / Archival (feat/observability branch)
+
+- [x] `ArchivalModule` — `/api/v1/admin/archival` admin endpoints
+  - `POST /simulate-rotation` — moves oldest hot orders (>90 days) → warm metadata archive tier
+  - `GET /stats` — row counts per storage tier from `orders_recent` and `user_order_index`
+  - `GET /database-sizes` — `pg_database_size()` for primary, metadata, and cold archive DB instances
+  - `GET /archive-for-year/:year` — look up cold archive config for a given year
+- [x] `MockDataModule` — `/api/v1/mock-data` endpoints
+  - `GET /status` — data status (row counts, date ranges) across all storage tiers
+  - `POST /generate` — trigger data generation if tables are empty; returns seeding instructions if not
+- [ ] Wire `ArchivalModule` and `MockDataModule` into `AppModule`
+- [ ] Provide `MultiDbService` and `ArchiveRegistryService` in `DatabaseModule`
+- [ ] Unit + integration tests for archival and mock-data modules
+
 ## Current Focus
 
-Enterprise Twitter assignment implementation — **complete**.
-All 5 endpoints ship with unit + integration + e2e coverage; ACL matrix
-proves visibility rules against a real Postgres.
+Observability + multi-tier archival implementation on `feat/observability` branch.
+Core enterprise-twitter assignment endpoints are complete; new archival and
+mock-data admin modules are being added.

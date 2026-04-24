@@ -1,6 +1,6 @@
 # Service Architecture — NestJS Module Graph
 
-<!-- DOC-SYNC: Diagram rewritten on 2026-04-17 for the Enterprise Twitter pivot. Auth/Users/TodoLists/TodoItems/Tags/Queue/Health/Throttler/Health modules replaced by Departments + Tweets + CLS + global guard. Please verify visual accuracy before committing. -->
+<!-- DOC-SYNC: Diagram updated on 2026-04-25. ArchivalModule and MockDataModule added under src/modules/. Please verify visual accuracy before committing. -->
 
 ## Module Import Graph
 
@@ -17,6 +17,8 @@ graph TD
 
     DepartmentsModule["DepartmentsModule\n/api/v1/departments (+ /tree)"]
     TweetsModule["TweetsModule\n/api/v1/tweets, /api/v1/timeline"]
+    ArchivalModule["ArchivalModule\n/api/v1/admin/archival\nPartition rotation + tier stats"]
+    MockDataModule["MockDataModule\n/api/v1/mock-data\nData status + seeding trigger"]
 
     AppModule --> AppClsModule
     AppModule --> AppConfigModule
@@ -26,6 +28,8 @@ graph TD
     AppModule --> TelemetryModule
     AppModule --> DepartmentsModule
     AppModule --> TweetsModule
+    AppModule --> ArchivalModule
+    AppModule --> MockDataModule
 
     DatabaseModule --> PrismaModule
     AppModule -.->|"APP_GUARD\nAuthContextGuard"| AppModule
@@ -35,22 +39,24 @@ graph TD
 
 Global modules are registered once in `AppModule` and inject into any module without explicit import:
 
-| Module            | Provides |
-|-------------------|----------|
-| `AppClsModule`    | `nestjs-cls` ClsService + middleware registration |
-| `AppConfigModule` | `AppConfigService` |
-| `AppLoggerModule` | `AppLogger` |
-| `PrismaModule`    | `PrismaService` (plain client + `tenantScoped` extended client) |
+| Module            | Provides                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `AppClsModule`    | `nestjs-cls` ClsService + middleware registration                                                    |
+| `AppConfigModule` | `AppConfigService`                                                                                   |
+| `AppLoggerModule` | `AppLogger`                                                                                          |
+| `PrismaModule`    | `PrismaService` (plain client + `tenantScoped` extended client)                                      |
 | `DatabaseModule`  | `DatabaseService`, `UsersDbService`, `CompaniesDbService`, `DepartmentsDbService`, `TweetsDbService` |
-| `TelemetryModule` | `TelemetryService`, `@Trace`, `@InstrumentClass` |
+| `TelemetryModule` | `TelemetryService`, `@Trace`, `@InstrumentClass`                                                     |
 
 ## Module Responsibilities
 
-| Module               | Controller(s)             | Service(s)            | Key Providers |
-|----------------------|---------------------------|-----------------------|---------------|
-| `DepartmentsModule`  | `DepartmentsController`   | `DepartmentsService`  | — (DB layer is global) |
-| `TweetsModule`       | `TweetsController`        | `TweetsService`       | — (DB layer is global) |
-| `DatabaseModule`     | —                         | `DatabaseService` + per-aggregate `*DbService`s | per-aggregate `*DbRepository`s, `PrismaService.tenantScoped` |
+| Module              | Controller(s)           | Service(s)                                                                                    | Key Providers                                                    |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `DepartmentsModule` | `DepartmentsController` | `DepartmentsService`                                                                          | — (DB layer is global)                                           |
+| `TweetsModule`      | `TweetsController`      | `TweetsService`                                                                               | — (DB layer is global)                                           |
+| `ArchivalModule`    | `ArchivalController`    | `ArchivalService`, `PartitionRotationService`                                                 | `MultiDbService`, `ArchiveRegistryService` (from DatabaseModule) |
+| `MockDataModule`    | `MockDataController`    | `MockDataService`                                                                             | `MultiDbService`, `ArchiveRegistryService` (from DatabaseModule) |
+| `DatabaseModule`    | —                       | `DatabaseService` + per-aggregate `*DbService`s + `MultiDbService` + `ArchiveRegistryService` | per-aggregate `*DbRepository`s, `PrismaService.tenantScoped`     |
 
 ## Middleware & Cross-Cutting Pipeline
 

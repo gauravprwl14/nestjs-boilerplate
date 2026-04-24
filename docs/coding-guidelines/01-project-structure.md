@@ -36,7 +36,9 @@ src/
 │   └── decorators/            # @Trace, @InstrumentClass, @IncrementCounter, @RecordDuration
 └── modules/                   # Feature modules — each is self-contained
     ├── departments/
-    └── tweets/
+    ├── tweets/
+    ├── archival/              # Partition rotation + multi-tier storage stats
+    └── mock-data/             # Data status queries + seeding trigger
 ```
 
 ## Rules
