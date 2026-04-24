@@ -19,13 +19,11 @@ src/
 │   ├── interfaces/            # Shared TypeScript interfaces (ApiResponse, Paginated)
 │   ├── middleware/            # RequestId, SecurityHeaders, MockAuth
 │   └── pipes/                 # ZodValidationPipe, ParseUuidPipe
-├── database/                  # PrismaService, DatabaseModule, BaseRepository, tenant-scope extension
-│   ├── prisma/                # schema.prisma + migrations
-│   ├── extensions/            # tenant-scope.extension.ts (Prisma $extends)
-│   ├── users/                 # UsersDbRepository, UsersDbService (findAuthContext only)
-│   ├── companies/             # CompaniesDbRepository, CompaniesDbService
-│   ├── departments/           # DepartmentsDbRepository, DepartmentsDbService
-│   └── tweets/                # TweetsDbRepository (incl. raw-SQL timeline), TweetsDbService
+├── database/                  # Multi-tier DB layer — raw pg pools, NOT Prisma delegates at runtime
+│   ├── prisma/                # schema.prisma + migrations (used for schema only)
+│   ├── interfaces/            # PoolConfig, ArchiveDbConfig, DbTier, OrderRow, OrderItemRow, etc.
+│   ├── multi-db.service.ts    # pg.Pool manager (primary, replicas, metadata, archive)
+│   └── archive-registry.service.ts  # year+tier → pg.Pool routing from archive_databases table
 ├── errors/                    # ErrorException, domain error-code constants, Prisma error handler
 │   ├── error-codes/           # Domain constants: GEN, VAL, AUT, AUZ, DAT, SRV
 │   ├── handlers/              # prisma-error.handler.ts (Prisma -> ErrorException mapping)
@@ -35,8 +33,9 @@ src/
 ├── telemetry/                 # OTel SDK init, TelemetryService, decorators
 │   └── decorators/            # @Trace, @InstrumentClass, @IncrementCounter, @RecordDuration
 └── modules/                   # Feature modules — each is self-contained
-    ├── departments/
-    └── tweets/
+    ├── orders/                # Orders API (stub — full impl in feat/om-orders)
+    ├── archival/              # Archival pipeline (stub — full impl in feat/om-archival)
+    └── mock-data/             # Seed/mock data generation (stub — full impl in feat/om-mock-data)
 ```
 
 ## Rules

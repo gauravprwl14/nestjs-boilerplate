@@ -2,132 +2,97 @@
 
 ## Database Layer Architecture
 
-The codebase uses a three-tier database layer. Feature services **never** touch Prisma directly.
+The codebase uses a **multi-tier raw-`pg` pool architecture**. Prisma is used
+only for schema migrations. Feature services access pools directly via
+`MultiDbService` and `ArchiveRegistryService`.
 
 ```
-Feature Service (e.g. TweetsService)
+Feature Service (e.g. OrdersService)
     ↓ injects
-*DbService (e.g. TweetsDbService)        ← the public DB-layer API
-    ↓ delegates to
-*DbRepository (e.g. TweetsDbRepository)  ← Prisma calls, extends BaseRepository
-    ↓ uses
-PrismaService   (plain client + `tenantScoped` getter that returns a $extends-wrapped client)
+MultiDbService           ← pool manager (primary, replicas, metadata, archive)
+    ↓ returns
+pg.Pool instance         ← caller runs raw SQL queries directly
+
+Feature Service
+    ↓ injects (optionally)
+ArchiveRegistryService   ← year+tier → pg.Pool resolver (loaded from archive_databases table)
 ```
 
-- **`DatabaseModule`** (`@Global()`) — registers all `*DbRepository` + `*DbService` providers; exports the `*DbService` classes and `DatabaseService`.
-- **`DatabaseService`** — exposes only `runInTransaction(fn)` for cross-aggregate atomic operations. Internally runs the transaction on `prisma.tenantScoped` so the tx client is also tenant-scoped.
-- **`*DbService`** — one per aggregate (users, companies, departments, tweets); injected by feature services; thin delegation over the repository.
-- **`*DbRepository`** — extends `BaseRepository`; implements `delegateFor(client)` to return the correct Prisma delegate; contains all SQL-level queries. Tenant-scoped repositories route through `prisma.tenantScoped` when the caller passed the plain root client.
-- **`DbTransactionClient`** (`src/database/types.ts`) — opaque alias for `Prisma.TransactionClient`; feature code never imports from `@prisma/client` for transaction types.
+- **`DatabaseModule`** (`@Global()`) — registers `MultiDbService` and
+  `ArchiveRegistryService`; exports both. Feature modules inject them without
+  adding `DatabaseModule` to their imports.
+- **`MultiDbService`** — manages `pg.Pool` instances: primary (writes, max 20),
+  replica-1 and replica-2 (round-robin reads, max 15 each), metadata/warm
+  (max 10), cold-archive pools (lazily created per DB, max 5 each).
+- **`ArchiveRegistryService`** — loads the `archive_databases` table from the
+  primary on `onModuleInit`; exposes `getPoolForYear(year, tier)` so feature
+  services can route archival reads without hard-coding host/port/db.
 
-### Tenant-Scoped vs Plain
+> Note: `BaseRepository`, `DatabaseService`, per-entity `*DbRepository` /
+> `*DbService` classes, `DbTransactionClient`, and the `tenant-scope.extension`
+> were removed in the feat/observability pivot. Prisma `$extends` is no longer
+> used at runtime.
 
-Which client a repository uses determines whether the Prisma tenant-scope
-extension participates:
+### Pool Routing Summary
 
-| Aggregate       | Client used           | Why                                                                  |
-| --------------- | --------------------- | -------------------------------------------------------------------- |
-| `User`          | plain `PrismaService` | User lookup happens in `MockAuthMiddleware` BEFORE CLS is populated  |
-| `Company`       | plain `PrismaService` | Company IS the tenant record — scoping it by `companyId` is circular |
-| `Department`    | `prisma.tenantScoped` | Tenant-scoped                                                        |
-| `Tweet` + pivot | `prisma.tenantScoped` | Tenant-scoped                                                        |
+| Use case                         | Pool method                                   | Notes                             |
+| -------------------------------- | --------------------------------------------- | --------------------------------- |
+| Write (INSERT / UPDATE / DELETE) | `getPrimaryPool()`                            | Always primary                    |
+| Read (SELECT — recent data)      | `getReadPool()`                               | Round-robin replica-1 / replica-2 |
+| Read — warm archive (tier 3)     | `getMetadataPool()`                           | `metadata_archive_db`             |
+| Read — cold archive (tier 4)     | `getPoolForYear(year, 4)` via ArchiveRegistry | Lazily created per DB             |
 
-### Adding a new aggregate
+### Adding a new feature that needs DB access
 
-1. Decide: is this aggregate tenant-scoped? If yes, add the model name to
-   `TENANT_SCOPED_MODELS` in `src/database/extensions/tenant-scope.extension.ts`.
-2. Create `src/database/<aggregate>/<aggregate>.db-repository.ts` extending
-   `BaseRepository`. For tenant-scoped aggregates, route `delegateFor` through
-   `prisma.tenantScoped` (see `DepartmentsDbRepository` for the idiom).
-3. Create `src/database/<aggregate>/<aggregate>.db-service.ts` delegating to the repository.
-4. Register both in `DatabaseModule` providers; export the `*DbService`.
-5. Inject the `*DbService` in the feature service.
+1. Inject `MultiDbService` (and optionally `ArchiveRegistryService`) into the
+   feature service.
+2. Call `getPrimaryPool()` / `getReadPool()` / `getMetadataPool()` /
+   `getPoolForYear(year, tier)` to obtain a `pg.Pool`.
+3. Run raw SQL via `pool.query(...)` or `pool.connect()` for transactions.
+4. Type the result rows using interfaces from `src/database/interfaces/index.ts`
+   (`OrderRow`, `OrderItemRow`, `OrderWithItems`, `UserOrderIndexEntry`, etc.)
+   or define new interfaces there.
+5. No registration in `DatabaseModule` is needed — `MultiDbService` and
+   `ArchiveRegistryService` are already globally exported.
 
 ## Prisma Usage Rules
 
-- All database access goes through a `*DbService` — feature services do **not** inject `PrismaService` or call Prisma directly.
-- The Prisma client is configured with the `@prisma/adapter-pg` native driver adapter — do not instantiate `PrismaClient` directly.
+- **Prisma is for migrations only** — do NOT inject `PrismaService` in feature
+  services for runtime queries. Use `MultiDbService` pools instead.
 - The Prisma schema lives at `src/database/prisma/schema.prisma`.
-- Always use `select` or `include` explicitly — avoid returning columns like raw relations by accident.
+- After changing the schema, regenerate Prisma Client and create a migration
+  (see Migration Workflow below).
 
-## BaseRepository
+## Raw SQL Conventions
 
-`BaseRepository<TModel, …>` (at `src/database/base.repository.ts`) provides standard CRUD + pagination. Subclasses implement one abstract method:
-
-```typescript
-protected abstract delegateFor(
-  client: PrismaService | DbTransactionClient,
-): PrismaDelegate<…>;
-
-// Tenant-scoped (Department/Tweet/…):
-protected delegateFor(client: PrismaService | DbTransactionClient) {
-  if (client === this.prisma) {
-    return (this.prisma.tenantScoped as unknown as { department: Prisma.DepartmentDelegate }).department;
-  }
-  return (client as DbTransactionClient).department;
-}
-
-// Non-tenant (User/Company):
-protected delegateFor(client: PrismaService | DbTransactionClient) {
-  return client.user;
-}
-```
-
-All base methods accept an optional `tx?: DbTransactionClient` parameter to participate in a transaction.
-
-## Tenant-Scope Extension
-
-Tenant-scoped reads and writes flow through `PrismaService.tenantScoped`, an
-extended client built lazily via:
+- Always parameterise queries — never interpolate user-supplied values into
+  SQL strings. Use `pool.query('SELECT … WHERE id = $1', [id])`.
+- Type result rows explicitly using interfaces from `src/database/interfaces/`.
+- For multi-statement transactions, use `pool.connect()` → `BEGIN` → `COMMIT`
+  / `ROLLBACK` pattern; release the client in a `finally` block.
 
 ```typescript
-this.$extends(tenantScopeExtension(this.cls));
+// Example — parameterised read from replica
+const pool = this.multiDb.getReadPool();
+const { rows } = await pool.query<OrderRow>(
+  'SELECT * FROM orders_recent WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+  [userId, limit],
+);
+
+// Example — archive read via registry
+const archivePool = this.archiveRegistry.getPoolForYear(2023, 4);
+if (!archivePool) throw ErrorException.notFound('Archive', '2023');
+const { rows } = await archivePool.query<OrderRow>('SELECT * FROM orders WHERE order_id = $1', [
+  id,
+]);
 ```
-
-The extension (see `src/database/extensions/tenant-scope.extension.ts`):
-
-- Reads → injects `where.companyId = cls.get(COMPANY_ID)` for every tenant-scoped model.
-- Writes → injects `data.companyId` when missing; rejects with `AUZ.CROSS_TENANT_ACCESS` when the payload carries a different companyId.
-- Skips the injection when `ClsKey.BYPASS_TENANT_SCOPE` is explicitly `true` (seed scripts only).
-
-**Blindspots:** `$queryRaw` / `$executeRaw` bypass the extension (the timeline
-query hard-codes `company_id`); nested `connect` into tenant-scoped relations
-is not validated (services must use flat writes and pre-validate ids).
-
-## Transactions
-
-Use `DatabaseService.runInTransaction()` when multiple writes across
-`*DbService` calls must succeed atomically. The transaction client is the
-tenant-scoped extended client, so scoping carries inside the tx too:
-
-```typescript
-await this.database.runInTransaction(async tx => {
-  const tweet = await this.tweetsDb.createTweet({ … }, tx);
-  await this.tweetsDb.createTargets(pivotRows, tx);
-  return tweet;
-});
-```
-
-The `tx` parameter threads through all `*DbService` methods — every method
-accepts `tx?: DbTransactionClient` as its last argument.
 
 ## Pagination
 
 Use the `PaginationParams` interface from `@common/interfaces` and return
-`PaginatedResult<T>`. DbRepository methods handle the skip/take calculation
-internally via `BaseRepository.findManyPaginated()`. The timeline currently
-uses a fixed limit (`DEFAULT_TIMELINE_LIMIT`); cursor pagination is noted as
-future work.
-
-## Select / Include Best Practices
-
-```typescript
-// Good — explicit select on a tenant-scoped read
-await this.prisma.tenantScoped.department.findMany({
-  where: { companyId },
-  select: { id: true, name: true, parentId: true },
-});
-```
+`PaginatedResult<T>`. Implement `skip` / `limit` with `OFFSET` / `LIMIT` in
+raw SQL (no ORM pagination helper is available). For high-volume archival reads,
+prefer cursor-based pagination over offset pagination.
 
 ## Migration Workflow
 

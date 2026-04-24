@@ -1,16 +1,18 @@
-# CLAUDE.md — AI Router for enterprise-twitter backend
+# CLAUDE.md — AI Router for order-management backend
 
 ## Project Overview
 
-Multi-tenant NestJS 11 backend for the Enterprise Twitter take-home assignment
+NestJS 11 backend for the Large Order Management take-home assignment
 (see `QUESTION.md`).
-**Domain:** Companies → Users → Departments (tree) → Tweets with three-level
-visibility (`COMPANY` / `DEPARTMENTS` / `DEPARTMENTS_AND_SUBDEPARTMENTS`).
+**Domain:** Orders with multi-tier storage — hot (primary DB + replicas),
+warm (metadata/archive DB tier 3), cold (per-year archive databases tier 4).
 **Auth:** mocked via `x-user-id` header (JWT + API Key stack has been
 stripped).
-**Stack:** NestJS 11, Express, Prisma 7 (native `@prisma/adapter-pg`),
-PostgreSQL 16, Zod validation, Pino + nestjs-cls for request-scoped tenant
-context, OpenTelemetry scaffolding (disabled by default).
+**Stack:** NestJS 11, Express, Prisma 7 (schema/migrations only — runtime
+queries use raw `pg` pools via `MultiDbService`), PostgreSQL 16 (primary +
+replicas + metadata + cold-archive pools), Redis (planned), Zod validation,
+Pino + nestjs-cls for request-scoped context, OpenTelemetry scaffolding
+(disabled by default).
 
 ---
 
@@ -18,10 +20,10 @@ context, OpenTelemetry scaffolding (disabled by default).
 
 ```
 src/
-├── app.module.ts                  # Root module; wires CLS, config, logger, DB, feature modules
+├── app.module.ts                  # Root module; wires CLS, config, logger, DB, feature modules (Orders, Archival, MockData)
 ├── main.ts                        # Bootstrap + Swagger + fallback error handler (OTel is preloaded via side-effect import before NestFactory)
 ├── bootstrap/                     # Graceful shutdown and process-level signal handlers
-├── config/                        # Zod-validated env config; AppConfigService
+├── config/                        # Zod-validated env config; AppConfigService (includes multi-DB + Redis env vars)
 ├── common/
 │   ├── cls/                       # AsyncLocalStorage module + ClsKey enum
 │   ├── constants/                 # Route constants (USER_ID_HEADER, IS_PUBLIC_KEY, limits, …)
@@ -33,27 +35,23 @@ src/
 │   ├── middleware/                # RequestId, SecurityHeaders, MockAuth
 │   └── pipes/                     # ZodValidationPipe, ParseUuidPipe
 ├── database/
-│   ├── prisma/schema.prisma       # Company/User/Department/UserDepartment/Tweet/TweetDepartment
-│   ├── prisma/migrations/         # init_enterprise_twitter
-│   ├── prisma.service.ts          # Base + tenantScoped client (via $extends)
-│   ├── base.repository.ts         # tx-aware abstract CRUD with soft-delete helpers
-│   ├── database.module.ts         # @Global — registers every DbRepository + DbService
-│   ├── database.service.ts        # Only exposes runInTransaction()
-│   ├── extensions/
-│   │   └── tenant-scope.extension.ts   # Prisma $extends — injects/asserts companyId
-│   ├── companies/                 # CompaniesDbRepository + CompaniesDbService
-│   ├── departments/               # DepartmentsDbRepository + DepartmentsDbService
-│   ├── tweets/                    # TweetsDbRepository (raw-SQL timeline) + TweetsDbService
-│   └── users/                     # UsersDbRepository + UsersDbService (findAuthContext for mock auth)
+│   ├── prisma/schema.prisma       # Product/OrderRecent/OrderItemRecent/UserOrderIndex/ArchiveDatabase/PartitionSimulation (schema+migrations only; runtime uses raw pg)
+│   ├── prisma/migrations/         # Prisma migration history
+│   ├── prisma.service.ts          # PrismaService (used for schema migrations, not runtime queries)
+│   ├── database.module.ts         # @Global — registers MultiDbService + ArchiveRegistryService
+│   ├── interfaces/index.ts        # PoolConfig, ArchiveDbConfig, DbTier, OrderRow, OrderItemRow, OrderWithItems, UserOrderIndexEntry
+│   ├── multi-db.service.ts        # pg.Pool manager: primary (write), replica-1/2 (round-robin reads), metadata (warm), archive pools (cold, lazy)
+│   └── archive-registry.service.ts# Loads archive_databases table on startup; year+tier → pg.Pool routing
 ├── errors/                        # ErrorException + domain error codes (GEN/VAL/AUT/AUZ/DAT/SRV)
 ├── logger/                        # AppLogger (Pino), sanitizer, trace-context util
 ├── telemetry/                     # OTel SDK (traces + metrics + logs), TelemetryService, @Trace/@InstrumentClass; `otel-preload.ts` is the side-effect module imported first in main.ts
 └── modules/
-    ├── departments/               # /api/v1/departments, /departments/tree
-    └── tweets/                    # /api/v1/tweets, /api/v1/timeline
+    ├── orders/                    # Orders feature module (stub — full impl in feat/om-orders)
+    ├── archival/                  # Archival feature module (stub — full impl in feat/om-archival)
+    └── mock-data/                 # Mock-data seeding module (stub — full impl in feat/om-mock-data)
 
 prisma/
-└── seed.ts                        # 3 companies, up-to-4-level dept trees, 16 users + visibility-matrix tweets (idempotent — no-ops if data exists)
+└── seed.ts                        # (legacy seed from enterprise-twitter pivot — may need refresh for order-management schema)
 
 test/
 ├── helpers/                       # factories, mock-config, mock-prisma
@@ -72,21 +70,23 @@ test/
 
 ## Routing Table
 
-| Task                                                | Load these docs                                                                                                                    |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Understand the product requirements                 | `docs/prd/enterprise-twitter-prd.md`, `QUESTION.md`                                                                                |
-| Understand the tenancy model                        | `docs/guides/FOR-Multi-Tenancy.md`, `README.md` § Multi-Tenant Approach                                                            |
-| Work on tweets or the timeline                      | `docs/guides/FOR-Tweets.md`, `docs/diagrams/tweets-sequence.md`                                                                    |
-| Work on departments or the hierarchy                | `docs/guides/FOR-Departments.md`, `docs/architecture/database-design.md`                                                           |
-| Change database schema                              | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md`                                           |
-| Work on the database layer (DbService/DbRepository) | `docs/guides/FOR-Database-Layer.md`, `docs/coding-guidelines/06-database-patterns.md`, `docs/architecture/service-architecture.md` |
-| Add or fix error handling                           | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md`                                                 |
-| Work on mock auth, CLS, or tenant context           | `docs/architecture/mock-auth-flow.md`, `docs/guides/FOR-Multi-Tenancy.md`                                                          |
-| Work on logging or tracing                          | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md`                                             |
-| Write or fix tests                                  | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                          |
-| Set up infrastructure or deploy                     | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                         |
-| Understand system architecture                      | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                        |
-| Plan a new feature                                  | `docs/plans/template.md`                                                                                                           |
+| Task                                               | Load these docs                                                                                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Understand the product requirements                | `docs/prd/enterprise-twitter-prd.md`, `QUESTION.md`                                                                                |
+| Understand the tenancy model                       | `docs/guides/FOR-Multi-Tenancy.md`, `README.md` § Multi-Tenant Approach                                                            |
+| Work on orders or order retrieval                  | `docs/guides/FOR-Orders.md`, `docs/architecture/database-design.md`                                                                |
+| Work on the multi-tier database / archival routing | `docs/guides/FOR-Database-Layer.md`, `docs/architecture/database-design.md`                                                        |
+| Work on tweets or the timeline (legacy)            | `docs/guides/FOR-Tweets.md`, `docs/diagrams/tweets-sequence.md`                                                                    |
+| Work on departments or the hierarchy (legacy)      | `docs/guides/FOR-Departments.md`, `docs/architecture/database-design.md`                                                           |
+| Change database schema                             | `docs/architecture/database-design.md`, `docs/coding-guidelines/06-database-patterns.md`                                           |
+| Work on the database layer (MultiDbService/pools)  | `docs/guides/FOR-Database-Layer.md`, `docs/coding-guidelines/06-database-patterns.md`, `docs/architecture/service-architecture.md` |
+| Add or fix error handling                          | `docs/guides/FOR-Error-Handling.md`, `docs/coding-guidelines/07-error-handling.md`                                                 |
+| Work on mock auth, CLS, or tenant context          | `docs/architecture/mock-auth-flow.md`, `docs/guides/FOR-Multi-Tenancy.md`                                                          |
+| Work on logging or tracing                         | `docs/guides/FOR-Observability.md`, `docs/coding-guidelines/08-logging-and-tracing.md`                                             |
+| Write or fix tests                                 | `docs/coding-guidelines/10-testing-standards.md`, `docs/coding-guidelines/11-best-practices-checklist.md`                          |
+| Set up infrastructure or deploy                    | `docs/infrastructure/01-docker-setup.md`, `docs/infrastructure/03-deployment-checklist.md`                                         |
+| Understand system architecture                     | `docs/architecture/high-level-architecture.md`, `docs/architecture/service-architecture.md`                                        |
+| Plan a new feature                                 | `docs/plans/template.md`                                                                                                           |
 
 ---
 
@@ -94,7 +94,7 @@ test/
 
 - **Same module:** Place providers directly in `providers: []`.
 - **Different module:** Export from the providing module and `imports: []` in the consuming module.
-- **Globals (`@Global()`):** `AppClsModule`, `AppConfigModule`, `AppLoggerModule`, `PrismaModule`, `DatabaseModule`, `TelemetryModule` — available everywhere without re-importing.
+- **Globals (`@Global()`):** `AppClsModule`, `AppConfigModule`, `AppLoggerModule`, `PrismaModule`, `DatabaseModule`, `TelemetryModule` — available everywhere without re-importing. `DatabaseModule` now exports `MultiDbService` and `ArchiveRegistryService` (not the legacy per-entity DbServices).
 - **Never use `forwardRef`** — restructure dependencies instead (circular deps indicate a design flaw).
 - **`APP_GUARD`:** `AuthContextGuard` is registered once in `AppModule`. Routes use `@Public()` to opt out.
 - **Middleware order (in `AppModule.configure`):** `RequestId` → `SecurityHeaders` → `MockAuth`. `MockAuth` short-circuits on non-`/api` paths so Swagger and probes stay anonymous.
@@ -110,7 +110,8 @@ test/
 - **Error codes:** `PREFIX` (3 uppercase letters) + 4-digit zero-padded number (e.g., `AUZ0004`, `VAL0008`). Prefix registry: `GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`.
 - **Imports:** Use path aliases (`@common/`, `@config/`, `@database/`, `@logger/`, `@telemetry/`, `@modules/`, `@errors/`).
 - **DTOs:** Zod schemas inside the DTO file; validated via `ZodValidationPipe` at the route level.
-- **Never trust `companyId` or `authorId` from the client** — always read from CLS. The tenant-scope extension injects the former on every tenant-scoped op; services read the latter from CLS when creating tweets.
+- **Never trust `userId` or order ownership from the client** — always read from CLS. Services read `userId` from CLS when writing or reading user-scoped data.
+- **`AppConfigService.get`** — typed key accessor property (returns a curried function `<K>(key: K): EnvConfig[K]`); used by `MultiDbService` and `ArchiveRegistryService` for dynamic env key reads.
 
 ---
 
