@@ -12,7 +12,7 @@ import {
 
 export const appConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  APP_NAME: z.string().default('enterprise-twitter'),
+  APP_NAME: z.string().default('order-management'),
   APP_PORT: z.coerce.number().int().positive().default(DEFAULT_APP_PORT),
   APP_HOST: z.string().default(DEFAULT_APP_HOST),
   API_PREFIX: z.string().default(DEFAULT_API_PREFIX),
@@ -25,7 +25,27 @@ export const appConfigSchema = z.object({
 });
 
 export const databaseConfigSchema = z.object({
-  DATABASE_URL: z.url(),
+  DATABASE_URL: z.string().url(),
+
+  DB_PRIMARY_HOST: z.string().default('localhost'),
+  DB_PRIMARY_PORT: z.coerce.number().int().positive().default(5432),
+  DB_PRIMARY_NAME: z.string().default('primary_db'),
+  DB_PRIMARY_USER: z.string().default('ecom_user'),
+  DB_PRIMARY_PASSWORD: z.string().default('ecom_pass'),
+
+  DB_REPLICA_1_HOST: z.string().default('localhost'),
+  DB_REPLICA_1_PORT: z.coerce.number().int().positive().default(5433),
+  DB_REPLICA_2_HOST: z.string().default('localhost'),
+  DB_REPLICA_2_PORT: z.coerce.number().int().positive().default(5434),
+
+  DB_METADATA_HOST: z.string().default('localhost'),
+  DB_METADATA_PORT: z.coerce.number().int().positive().default(5435),
+  DB_METADATA_NAME: z.string().default('metadata_archive_db'),
+  DB_METADATA_USER: z.string().default('ecom_user'),
+  DB_METADATA_PASSWORD: z.string().default('ecom_pass'),
+
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().int().positive().default(6379),
 });
 
 export const otelConfigSchema = z.object({
