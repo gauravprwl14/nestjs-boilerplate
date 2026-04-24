@@ -37,7 +37,7 @@ export class MockDataService {
     );
 
     const coldStats: Record<string, number> = {};
-    for (const [year, configs] of this.registry.getAllArchives()) {
+    for (const [_year, configs] of this.registry.getAllArchives()) {
       for (const cfg of configs) {
         if (cfg.tier !== 4) continue;
         const p = this.registry.getPoolForArchive(cfg);
