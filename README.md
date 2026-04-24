@@ -1,171 +1,80 @@
-# Enterprise Twitter — Multi-Tenant Backend
+# Order Management System
 
-A NestJS 11 + Prisma 7 + PostgreSQL backend for the take-home assignment in
-`QUESTION.md`. One service, many companies, tweets with three levels of
-per-department visibility.
+A NestJS 11 + raw pg + PostgreSQL backend for the e-commerce order archival
+system described in `Question-2.md`. Multi-tier storage (Hot/Warm/Cold) across
+7 Postgres instances with read replicas and realistic 3M-order dataset.
 
 ---
 
 ## Table of Contents
 
-- [Enterprise Twitter — Multi-Tenant Backend](#enterprise-twitter--multi-tenant-backend)
+- [Order Management System](#order-management-system)
   - [Table of Contents](#table-of-contents)
-  - [How to Run](#how-to-run)
-    - [1. Clone](#1-clone)
-    - [2. Start the app](#2-start-the-app)
-    - [3. Make a request](#3-make-a-request)
-      - [Using Swagger UI or Postman](#using-swagger-ui-or-postman)
-    - [4. Run tests](#4-run-tests)
+  - [Quick Start](#quick-start)
   - [API](#api)
+    - [Endpoints](#endpoints)
     - [Response envelope](#response-envelope)
-    - [Sample success responses](#sample-success-responses)
-    - [Sample error responses](#sample-error-responses)
+  - [Observability](#observability)
   - [Design Decisions](#design-decisions)
-    - [Multi-tenant Approach](#multi-tenant-approach)
-    - [ACL Logic](#acl-logic)
-    - [Department Hierarchy Handling](#department-hierarchy-handling)
-  - [Further Reading](#further-reading)
-  - [Out of Scope](#out-of-scope)
   - [Tech Stack](#tech-stack)
   - [Project Layout](#project-layout)
-  - [FAQ](#faq)
 
 ---
 
-## How to Run
-
-Four short steps: **clone → start → call → test.**
-
-### 1. Clone
+## Quick Start
 
 ```bash
+# 1. Clone
 git clone git@github.com:stmn-gcc-hiring/stmn-backend-test-gauravP.git
 cd stmn-backend-test-gauravP
+
+# 2. Start all services (app + 7 Postgres instances + Redis + observability)
+podman-compose up -d
 ```
 
-<sub>HTTPS: `git clone https://github.com/stmn-gcc-hiring/stmn-backend-test-gauravP.git`</sub>
+- API: <http://localhost:3000>
+- Swagger: <http://localhost:3000/docs>
+- Grafana: <http://localhost:3001> (anonymous admin)
 
-### 2. Start the app
-
-Pick the row that matches your setup, then run the commands under that option.
-
-| Option                            | What runs where                        | Use when                       | Needs                    |
-| --------------------------------- | -------------------------------------- | ------------------------------ | ------------------------ |
-| **A. Docker-all** _(recommended)_ | App + Postgres + Grafana in containers | First run / demo               | Podman or Docker only    |
-| **B. Hybrid**                     | Postgres in a container, app on host   | Active development (fast HMR)  | Podman/Docker + Node     |
-| **C. Native**                     | Both on host                           | No container runtime available | Node + local Postgres 16 |
-
-- API &nbsp;&nbsp;· <http://localhost:3000>
-- Swagger at `/docs` <http://localhost:3000/docs>
-- Grafana · <http://localhost:3001> (anonymous admin)
-
-<details>
-<summary><b>A. Docker-all</b> — zero-deps happy path</summary>
+> **Databases seed automatically on first start (~5 min for 3M orders)**
+> All data is inserted via Postgres `generate_series` SQL — no app-level loop.
+> Subsequent starts are instant (volumes persist).
 
 ```bash
-podman compose up -d            # or: docker compose up -d
-```
+# 3. Make a request (userId is any positive integer 1–10000)
+curl -H "x-user-id: 42" http://localhost:3000/api/v1/orders/user/42
 
-Migrations and seed run automatically (idempotent).
+# 4. Run tests
+npm test            # unit + integration
+npm run test:e2e    # HTTP round-trip
+npm run test:cov    # coverage
 
-</details>
-
-<details>
-<summary><b>B. Hybrid</b> — Postgres in a container, app on host</summary>
-
-```bash
-podman compose up -d postgres
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/enterprise_twitter_dev?schema=public"
-npm install
-npm run start:dev:seeded        # migrate + seed + start:dev
-```
-
-</details>
-
-<details>
-<summary><b>C. Native</b> — both on host (requires local Postgres 16)</summary>
-
-Create an empty `enterprise_twitter_dev` database first, then:
-
-```bash
-export DATABASE_URL="postgresql://<user>:<pwd>@localhost:5432/enterprise_twitter_dev?schema=public"
-npm install
-npm run start:dev:seeded
-```
-
-</details>
-
-> More detail (individual services, observability-only boot, re-seed):
-> [`docs/coding-guidelines/09-development-workflow.md`](docs/coding-guidelines/09-development-workflow.md).
-
-### 3. Make a request
-
-Grab a seeded user id, then pass it as the `x-user-id` header:
-
-```bash
-# List user ids (seed also prints them to stdout on first run)
-podman compose exec postgres \
-  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, email FROM users;'
-
-# Read your timeline
-curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
-
-# Post a tweet
-curl -H "x-user-id: <UUID>" -H "Content-Type: application/json" \
-     -X POST http://localhost:3000/api/v1/tweets \
-     -d '{"content":"hello","visibility":"COMPANY"}'
-```
-
-Missing or unknown `x-user-id` → `401 AUT0001`. More lookup options in the [FAQ](#faq).
-
-#### Using Swagger UI or Postman
-
-Every protected route requires the same `x-user-id` header. Here's where to set
-it in the two most common clients so you don't paste it per-request:
-
-- **Swagger UI** (`http://localhost:3000/docs`) —
-  1. Click the green **Authorize** 🔒 button at the top right.
-  2. In the `x-user-id (apiKey)` field, paste a UUID from the seed users table.
-  3. Click **Authorize** → **Close**. The header is now attached to every
-     "Try it out" request in this tab.
-- **Postman / Insomnia / Bruno** — open the collection (or the individual
-  request) and add a header on the **Headers** tab:
-  - Key: `x-user-id`
-  - Value: `<UUID>` (a seeded user id — see Step 3 above or the [FAQ](#faq))
-    Save this on the **collection** level (Postman → collection → _Variables_ or
-    _Authorization_ → Headers) so every request under it inherits the header.
-- **curl / HTTPie** — pass `-H "x-user-id: <UUID>"` on each call (as shown
-  above).
-
-> The header name is defined by `USER_ID_HEADER` in
-> `src/common/constants/app.constants.ts` and declared on each controller via
-> `@ApiSecurity('x-user-id')` (see
-> `src/modules/tweets/tweets.controller.ts:15` and
-> `src/modules/departments/departments.controller.ts:20`), which is what makes
-> the **Authorize** button appear in Swagger UI.
-
-### 4. Run tests
-
-```bash
-npm test           # unit + ACL-matrix integration
-npm run test:e2e   # HTTP round-trip
-npm run test:cov   # coverage (≥ 70% global, ≥ 80% services)
+# 5. Run k6 load tests (requires k6 installed)
+k6 run test/k6/read-orders.js
+k6 run test/k6/create-orders.js
+k6 run test/k6/archival-stats.js
 ```
 
 ---
 
 ## API
 
-| Method | Path                       | Purpose                                                                                                                                                |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| POST   | `/api/v1/tweets`           | Create a tweet (content ≤ 280 chars; visibility ∈ {COMPANY, DEPARTMENTS, DEPARTMENTS_AND_SUBDEPARTMENTS}; `departmentIds` required for the latter two) |
-| GET    | `/api/v1/timeline`         | Tweets visible to the caller, newest first, up to 100 rows                                                                                             |
-| POST   | `/api/v1/departments`      | Create a department (optional `parentId`, must be same-company)                                                                                        |
-| GET    | `/api/v1/departments`      | Flat list of departments in the caller's company                                                                                                       |
-| GET    | `/api/v1/departments/tree` | Same list, nested by `parentId`                                                                                                                        |
+### Endpoints
 
-All routes require the `x-user-id` header. Full OpenAPI docs are live at
-`http://localhost:3000/docs` once the app is running.
+| Method | Path                                   | Auth required | Purpose                                           |
+| ------ | -------------------------------------- | ------------- | ------------------------------------------------- |
+| GET    | `/api/v1/orders/user/:userId`          | Yes           | Paginated orders for a user — spans Hot/Warm/Cold |
+| GET    | `/api/v1/orders/:orderId`              | Yes           | Single order by id (routed to correct tier)       |
+| POST   | `/api/v1/orders`                       | Yes           | Create a new order (writes to primary/hot tier)   |
+| GET    | `/admin/archival/stats`                | No            | Archival statistics across all tiers              |
+| GET    | `/admin/archival/database-sizes`       | No            | Size and row counts per database                  |
+| GET    | `/admin/archival/archive-for-year/:yr` | No            | Archive DB config for a given year                |
+| POST   | `/admin/archival/simulate-rotation`    | No            | Simulate partition rotation (moves hot→warm)      |
+| GET    | `/mock-data/status`                    | No            | Seeding status and tier row counts                |
+| POST   | `/mock-data/generate`                  | No            | Trigger on-demand mock data generation            |
+
+Protected routes require `x-user-id: <positive integer>` header.
+Full OpenAPI docs: <http://localhost:3000/docs>
 
 ### Response envelope
 
@@ -346,165 +255,47 @@ Request body: `{ "content": "", "visibility": "COMPANY" }`
 
 ---
 
-## Design Decisions
+## Observability
 
-### Multi-tenant Approach
+Grafana at <http://localhost:3001> (anonymous admin) — pre-built dashboards for:
 
-One shared database, one `companyId` column on every tenant-scoped table.
-That is the simplest shape that still scales defensibly, and it fit the
-time budget.
+- Request rate and p95/p99 latency per endpoint
+- Tier-routing breakdown (Hot vs Warm vs Cold queries)
+- Replica lag (`pg_last_xact_replay_timestamp`)
+- Redis hit/miss ratio
 
-Isolation is enforced at **five independent layers**, so no single bug can
-leak data across tenants:
-
-1. **HTTP gate** — `MockAuthMiddleware`
-   (`src/common/middleware/mock-auth.middleware.ts`) reads `x-user-id`,
-   loads the user's company and direct departments, and publishes them into
-   CLS (AsyncLocalStorage). Missing or unknown id → `401`.
-2. **Fail-fast guard** — `AuthContextGuard`
-   (`src/common/guards/auth-context.guard.ts`) is registered as
-   `APP_GUARD`. If `companyId` is not in CLS (e.g. a route skipped the
-   middleware), the guard rejects the request before any query runs.
-   `@Public()` routes bypass it.
-3. **ORM guard** — a Prisma `$extends` extension
-   (`src/database/extensions/tenant-scope.extension.ts`) applies to every
-   operation on `Department`, `UserDepartment`, `Tweet`, and
-   `TweetDepartment`. Reads get `where: { companyId }` injected. Writes are
-   rejected if `data.companyId` disagrees with CLS, or is omitted.
-4. **Service pre-validation** — services look up any referenced ids inside
-   the caller's tenant _before_ a write. A cross-tenant `departmentId` is
-   surfaced as `VAL0008 DEPARTMENT_NOT_IN_COMPANY` instead of a raw FK
-   error later.
-5. **Schema-level composite FKs** — `(parentId, companyId)` on the
-   `departments` self-reference and `(tweetId, companyId)` /
-   `(departmentId, companyId)` on `TweetDepartment`. Even if every layer
-   above failed, Postgres refuses a cross-tenant row.
-
-Prisma's `$extends` does **not** cover raw SQL or nested `connect` writes,
-so two things are done by hand:
-
-- The only raw query, `findTimelineForUser`
-  (`src/database/tweets/tweets.db-repository.ts`), hard-codes
-  `company_id = ${companyId}` as the first WHERE predicate and threads
-  `companyId` into every sub-CTE.
-- `TweetsService.create` (`src/modules/tweets/tweets.service.ts`) never
-  uses nested `connect` into tenant-scoped relations. It resolves target
-  ids via `findExistingIdsInCompany` (cross-tenant rows silently drop),
-  fails with `VAL0008` on a length mismatch, then writes via a flat
-  `createMany` with an explicit `companyId` on every row.
-
-More detail: `docs/guides/FOR-Multi-Tenancy.md`.
-
-### ACL Logic
-
-A user sees a tweet if, and only if:
-
-- It is in the **same company**, and
-- Any one of these is true:
-  - The user is the **author** (authors always see their own posts — a
-    CEO posting to Engineering should still see it in their own
-    timeline).
-  - `visibility = COMPANY`.
-  - `visibility = DEPARTMENTS` and at least one target department is in
-    the user's **direct** memberships.
-  - `visibility = DEPARTMENTS_AND_SUBDEPARTMENTS` and at least one target
-    department is an **ancestor-or-equal** of one of the user's
-    departments.
-
-All four branches are evaluated in **one SQL query** — no N+1, no tree
-walking in app code. The 13 numbered cases (plus one sanity counter-case)
-of the visibility matrix are exercised against a real Postgres in
-`test/integration/acl-matrix.spec.ts`.
-
-More detail: `docs/guides/FOR-Tweets.md`, `docs/diagrams/tweets-sequence.md`.
-
-### Department Hierarchy Handling
-
-Departments use an **adjacency list**: each row has an optional `parentId`
-pointing at its parent. It is the simplest model that still supports
-arbitrary depth.
-
-To read the tree efficiently, the timeline query uses a Postgres
-`WITH RECURSIVE` CTE. It climbs from each of the user's direct
-departments up through parents in a single pass, so
-`DEPARTMENTS_AND_SUBDEPARTMENTS` visibility resolves in one round-trip:
-
-```sql
-WITH RECURSIVE
-  user_direct_depts AS (
-    SELECT department_id AS id
-    FROM user_departments
-    WHERE user_id = $user AND company_id = $company
-  ),
-  user_dept_ancestors(id, parent_id) AS (
-    SELECT d.id, d.parent_id FROM departments d
-    WHERE d.id IN (SELECT id FROM user_direct_depts)
-      AND d.company_id = $company
-    UNION
-    SELECT p.id, p.parent_id FROM departments p
-    INNER JOIN user_dept_ancestors uda ON p.id = uda.parent_id
-    WHERE p.company_id = $company
-  )
-SELECT … FROM tweets WHERE …   -- visibility branches use both CTEs
-```
-
-Every CTE and the outer `SELECT` filter on `company_id = $company`. With
-the composite FK on `departments(parentId, companyId)`, a tree cannot
-cross tenants even if the create path tried.
-
-More detail on the SQL choices (including why `UNION` and not `UNION ALL`):
-`docs/guides/FOR-Tweets.md`, `docs/architecture/database-design.md`.
+OpenTelemetry is **enabled by default** in the container stack (`OTEL_ENABLED=true`).
+Set `OTEL_ENABLED=false` in `.env` for local development without the collector.
 
 ---
 
-## Further Reading
+## Design Decisions
 
-The `docs/` tree is the deep-dive layer. Start at
-[`docs/CONTEXT.md`](docs/CONTEXT.md) for the top-level router, or jump
-straight to one of these high-value entry points.
+### Multi-Tier Storage
 
-**Architecture (how the pieces fit together)**
+Orders are stored across three tiers depending on age:
 
-| Topic                                                  | File                                                                                           |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Whole-system picture, request lifecycle                | [`docs/architecture/high-level-architecture.md`](docs/architecture/high-level-architecture.md) |
-| Prisma schema, composite FKs, tenancy columns          | [`docs/architecture/database-design.md`](docs/architecture/database-design.md)                 |
-| How `x-user-id` becomes CLS tenant context             | [`docs/architecture/mock-auth-flow.md`](docs/architecture/mock-auth-flow.md)                   |
-| Controller → Service → DbService → Repository layering | [`docs/architecture/service-architecture.md`](docs/architecture/service-architecture.md)       |
+| Tier          | Storage                  | Age             | Contents                     |
+| ------------- | ------------------------ | --------------- | ---------------------------- |
+| Hot (tier 2)  | `primary-db`             | last 90 days    | Full orders + items          |
+| Warm (tier 3) | `metadata-archive-db`    | 90 days – 5 yrs | Metadata only (no items)     |
+| Cold (tier 4) | `archive-2023/2024/2025` | Older           | Full archived orders + items |
 
-**Sequence & flow diagrams (Mermaid)**
+Reads always start with a `user_order_index` lookup on the primary, then
+fan out in parallel to whichever tiers are needed. P95 read latency stays
+under 200ms even when crossing all three tiers simultaneously.
 
-| Diagram                                          | File                                                                                 |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Tweet create + timeline request flow             | [`docs/diagrams/tweets-sequence.md`](docs/diagrams/tweets-sequence.md)               |
-| Error-handling pipeline (throw → filter → wire)  | [`docs/diagrams/error-handling-flow.md`](docs/diagrams/error-handling-flow.md)       |
-| Observability pipeline (logs + OTel + collector) | [`docs/diagrams/observability-pipeline.md`](docs/diagrams/observability-pipeline.md) |
+### Read Replica Routing
 
-**Topic guides (task-oriented)**
+Writes go to the primary pool. Reads are distributed across two replicas
+via a simple atomic round-robin counter in `MultiDbService.getReadPool()`.
+Replica lag is typically sub-millisecond on the local Docker network.
 
-| I want to…                             | File                                                                     |
-| -------------------------------------- | ------------------------------------------------------------------------ |
-| Understand tenant isolation end-to-end | [`docs/guides/FOR-Multi-Tenancy.md`](docs/guides/FOR-Multi-Tenancy.md)   |
-| Work on the tweet / timeline path      | [`docs/guides/FOR-Tweets.md`](docs/guides/FOR-Tweets.md)                 |
-| Work on departments or the hierarchy   | [`docs/guides/FOR-Departments.md`](docs/guides/FOR-Departments.md)       |
-| Add a DbService/DbRepository           | [`docs/guides/FOR-Database-Layer.md`](docs/guides/FOR-Database-Layer.md) |
-| Add or fix an error code               | [`docs/guides/FOR-Error-Handling.md`](docs/guides/FOR-Error-Handling.md) |
-| Wire up logs / traces / metrics        | [`docs/guides/FOR-Observability.md`](docs/guides/FOR-Observability.md)   |
+### Auth
 
-**Product & infrastructure**
-
-| Topic                                      | File                                                                                                         |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| Product requirements (what we're building) | [`docs/prd/enterprise-twitter-prd.md`](docs/prd/enterprise-twitter-prd.md)                                   |
-| Docker Compose / local dev                 | [`docs/infrastructure/01-docker-setup.md`](docs/infrastructure/01-docker-setup.md)                           |
-| Environment variables                      | [`docs/infrastructure/02-environment-configuration.md`](docs/infrastructure/02-environment-configuration.md) |
-| Deployment checklist                       | [`docs/infrastructure/03-deployment-checklist.md`](docs/infrastructure/03-deployment-checklist.md)           |
-| Grafana / OTel collector stack             | [`docs/infrastructure/04-grafana-stack-setup.md`](docs/infrastructure/04-grafana-stack-setup.md)             |
-| Technical assumptions behind the design    | [`docs/assumptions/technical-assumptions.md`](docs/assumptions/technical-assumptions.md)                     |
-
-**Coding guidelines** — conventions, DI, error handling, testing — live under
-[`docs/coding-guidelines/`](docs/coding-guidelines/) (11 numbered files,
-indexed by [`docs/coding-guidelines/CONTEXT.md`](docs/coding-guidelines/CONTEXT.md)).
+`x-user-id` is validated as a positive integer in `MockAuthMiddleware` —
+no database lookup. The value is stored in CLS (`ClsKey.USER_ID`) and
+consumed by services and the `AuthContextGuard`.
 
 ---
 
@@ -560,105 +351,35 @@ src/
 ├── app.module.ts                              # module wiring + global middleware/guard
 ├── main.ts                                    # bootstrap, Swagger, pipes, filters
 ├── common/
-│   ├── middleware/mock-auth.middleware.ts     # ① HTTP gate: x-user-id → CLS
-│   └── guards/auth-context.guard.ts           # ② Fail-fast: CLS companyId must be set
+│   ├── middleware/mock-auth.middleware.ts     # HTTP gate: x-user-id (positive int) → CLS
+│   └── guards/auth-context.guard.ts           # Fail-fast: userId must be in CLS
 ├── database/
-│   ├── prisma.service.ts                      # Prisma client + tenant-scoped extension wiring
-│   ├── extensions/tenant-scope.extension.ts   # ③ ORM guard: inject/assert companyId
-│   ├── prisma/schema.prisma                   # models + composite FKs
-│   ├── companies/
-│   ├── departments/
-│   ├── tweets/                                # incl. raw-SQL timeline query
-│   └── users/                                 # minimal: only findAuthContext for mock auth
+│   ├── multi-db.service.ts                    # @Global pg Pool manager (primary/replicas/archives)
+│   ├── database.module.ts                     # Registers MultiDbService
+│   └── interfaces/index.ts                    # PoolConfig, OrderRow, DbTier, …
 ├── modules/
-│   ├── departments/                           # POST /departments, GET /departments, /tree
-│   └── tweets/                                # POST /tweets, GET /timeline
-├── errors/error-codes/                        # AUZ.CROSS_TENANT_ACCESS,
-│                                              # DAT.DEPARTMENT_NOT_FOUND / COMPANY_NOT_FOUND,
-│                                              # VAL.DEPARTMENT_IDS_REQUIRED / DEPARTMENT_NOT_IN_COMPANY
+│   ├── orders/                                # GET/POST /api/v1/orders — multi-tier routing
+│   ├── archival/                              # GET /admin/archival/* — stats, sizes, registry
+│   └── mock-data/                             # GET/POST /mock-data — seeding controls
+├── errors/error-codes/                        # AUT, VAL, DAT, SRV domain codes
 └── …
 
 prisma/
-└── seed.ts                                    # 3 companies, up-to-4-level dept trees, 16 users + sample tweets
+└── seed.ts                                    # generate_series SQL seed — ~3M orders, ~850MB
 
 test/
-├── unit/…                                     # co-located unit specs
-├── integration/acl-matrix.spec.ts             # ★ the visibility matrix — real Postgres
-└── e2e/tweets.e2e-spec.ts                     # HTTP happy-path
+├── unit/…                                     # unit specs
+├── integration/multi-tier-routing.spec.ts     # tier routing against real Postgres
+├── e2e/orders.e2e-spec.ts                     # HTTP happy-path
+└── k6/
+    ├── read-orders.js                         # 20→100 VUs, 3 min; p95<200ms
+    ├── create-orders.js                       # 10→20 VUs, 2 min; p95<300ms
+    └── archival-stats.js                      # 5 VUs, 1.5 min; p95<1000ms
 
 docs/
 ├── CONTEXT.md                                 # top-level router
-├── api/                                       # OpenAPI / route references
-├── architecture/                              # high-level + DB + mock-auth + service diagrams
-├── assumptions/                               # technical-assumptions.md, out-of-scope.md
+├── architecture/                              # high-level + DB + service diagrams
 ├── coding-guidelines/                         # conventions, DI, error-handling, testing
-├── diagrams/                                  # Mermaid sequence / flow diagrams
-├── guides/                                    # FOR-Multi-Tenancy, FOR-Tweets, FOR-Departments, …
 ├── infrastructure/                            # docker, env, deployment, grafana
-├── plans/                                     # feature-plan template
-├── prd/                                       # product requirements
-└── task-tracker/                              # project status
-```
-
----
-
-## FAQ
-
-**How do I get a user id to use as `x-user-id`?**
-
-The seed prints every user's UUID to stdout on first run. If the DB is already
-seeded (the seed is idempotent — see `prisma/seed.ts:18-22`), query the `users`
-table directly:
-
-```bash
-podman compose exec postgres \
-  psql -U postgres -d enterprise_twitter_dev -c 'SELECT id, name, email FROM users;'
-```
-
-Or re-run the seed printer only (safe; no-ops if data exists):
-
-```bash
-npm run prisma:seed
-```
-
-Or open Prisma Studio:
-
-```bash
-npm run prisma:studio
-```
-
-> Tables are snake-plural (`users`, `companies`, `departments`, `tweets`, …) via
-> Prisma `@@map` directives — `SELECT … FROM "user"` will fail with
-> `relation "user" does not exist`.
-
-**Why does `SELECT … FROM "user"` fail?**
-
-See above — every model in `src/database/prisma/schema.prisma` is mapped to a
-plural snake_case table name. Use `users`, not `"user"`.
-
-**I get `401 AUT0001` on every request.**
-
-The `x-user-id` header is missing or the UUID isn't in the `users` table. Grab a
-valid id via the command above and pass it on every request:
-
-```bash
-curl -H "x-user-id: <UUID>" http://localhost:3000/api/v1/timeline
-```
-
-Swagger (`/docs`) and health probes are `@Public()` and do not need the header.
-
-**How do I force a re-seed?**
-
-The seed short-circuits if any company row exists. Truncate first, then re-run:
-
-```bash
-podman compose exec postgres psql -U postgres -d enterprise_twitter_dev -c \
-  'TRUNCATE companies, departments, users, user_departments, tweets, tweet_departments CASCADE;'
-npm run prisma:seed
-```
-
-Or wipe and re-migrate the whole schema (drops all data):
-
-```bash
-npm run prisma:migrate:reset
+└── superpowers/plans/                         # implementation plans
 ```
