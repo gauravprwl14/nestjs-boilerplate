@@ -29,10 +29,10 @@ export class AuthContextGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const companyId = this.cls.get<string | undefined>(ClsKey.COMPANY_ID);
-    if (!companyId) {
+    const userId = this.cls.get<number | undefined>(ClsKey.USER_ID);
+    if (!userId) {
       throw new ErrorException(AUT.UNAUTHENTICATED, {
-        message: 'No tenant context on this request — mock auth middleware did not run.',
+        message: 'No user context — x-user-id header missing or invalid.',
       });
     }
     return true;
