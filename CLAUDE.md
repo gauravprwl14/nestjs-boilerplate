@@ -104,13 +104,49 @@ test/
 ## Coding Conventions
 
 - **No hardcoded strings** — use constants from `src/common/constants/` or `src/common/cls/cls.constants.ts` (`ClsKey` enum).
-- **JSDoc on public methods** — document params, return type, and thrown errors.
+- **JSDoc on ALL exported code** — every exported class, method, interface, type alias, and enum member must have a JSDoc block. Use `/** ... */` format. Document params with `@param`, return value with `@returns`, thrown errors with `@throws`. Inside method bodies, use `//` inline comments only for non-obvious WHY (hidden constraint, workaround, subtle invariant) — never for restating WHAT the code does. New files without JSDoc on public API will be rejected in review.
 - **File names:** `kebab-case.type.ts` (e.g., `tweets.service.ts`, `create-tweet.dto.ts`, `tenant-scope.extension.ts`).
 - **Classes:** `PascalCase`. **Functions/methods:** `camelCase`. **Constants:** `UPPER_SNAKE_CASE`.
 - **Error codes:** `PREFIX` (3 uppercase letters) + 4-digit zero-padded number (e.g., `AUZ0004`, `VAL0008`). Prefix registry: `GEN`, `VAL`, `AUT`, `AUZ`, `DAT`, `SRV`.
 - **Imports:** Use path aliases (`@common/`, `@config/`, `@database/`, `@logger/`, `@telemetry/`, `@modules/`, `@errors/`).
 - **DTOs:** Zod schemas inside the DTO file; validated via `ZodValidationPipe` at the route level.
 - **Never trust `userId` from the request body** — always read from CLS (`ClsKey.USER_ID`). The `MockAuthMiddleware` validates and stores it; services read it from CLS when creating orders.
+
+---
+
+## JSDoc Examples
+
+**Class:**
+
+```typescript
+/**
+ * DB-layer façade over OrdersDbRepository.
+ * Feature services inject this — repositories are an implementation detail.
+ */
+@Injectable()
+export class OrdersDbService { ... }
+```
+
+**Method:**
+
+```typescript
+/**
+ * Round-robin across replica-1 and replica-2.
+ * Falls back to primary when replica pool list is empty.
+ *
+ * @returns A read-only pg.Pool — do not use for writes
+ */
+getReadPool(): Pool { ... }
+```
+
+**Interface property:**
+
+```typescript
+export interface Order {
+  /** 2=hot (primary+replicas), 3=warm (metadata archive), 4=cold (year archive) */
+  tier: 2 | 3 | 4;
+}
+```
 
 ---
 
