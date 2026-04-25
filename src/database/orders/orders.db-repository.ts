@@ -1,12 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MultiDbService } from '@database/multi-db.service';
 import { ArchiveRegistryService } from '@database/archive-registry.service';
-import {
-  UserOrderIndexEntry,
-  OrderRow,
-  OrderItemRow,
-  OrderWithItems,
-} from '@database/interfaces/index';
+import { UserOrderIndexEntry, OrderRow, OrderItemRow, OrderWithItems } from '@database/interfaces';
 import { CreateOrderDto } from '@modules/orders/dto/create-order.dto';
 
 @Injectable()
@@ -16,14 +11,6 @@ export class OrdersDbRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
-  /**
-   * Fetch a paginated list of order index entries for a user.
-   *
-   * @param userId - The user whose orders to fetch
-   * @param limit - Page size
-   * @param offset - Page offset
-   * @returns Matching entries and total count
-   */
   async findIndexByUser(
     userId: number,
     limit: number,
@@ -51,12 +38,6 @@ export class OrdersDbRepository {
     };
   }
 
-  /**
-   * Fetch hot (tier-2) orders with their items from orders_recent.
-   *
-   * @param orderIds - List of order IDs to fetch
-   * @returns Orders with joined items
-   */
   async findHotOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getReadPool();
@@ -89,12 +70,6 @@ export class OrdersDbRepository {
     }));
   }
 
-  /**
-   * Fetch warm (tier-3) orders from order_metadata_archive.
-   *
-   * @param orderIds - List of order IDs to fetch
-   * @returns Orders (without items — not stored in warm tier)
-   */
   async findWarmOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getMetadataPool();
@@ -114,12 +89,6 @@ export class OrdersDbRepository {
     }));
   }
 
-  /**
-   * Fetch cold (tier-4) orders from per-year archive databases.
-   *
-   * @param entries - Index entries that include archiveLocation for routing
-   * @returns Orders with items from the appropriate cold archive pool
-   */
   async findColdOrders(entries: UserOrderIndexEntry[]): Promise<OrderWithItems[]> {
     if (entries.length === 0) return [];
     const byLocation = new Map<string, bigint[]>();
@@ -166,12 +135,6 @@ export class OrdersDbRepository {
     return (await Promise.all(promises)).flat();
   }
 
-  /**
-   * Find a single order by ID, routing to the correct tier via the index.
-   *
-   * @param orderId - The order to look up
-   * @returns The order with items, or null if not found
-   */
   async findOrderById(orderId: bigint): Promise<OrderWithItems | null> {
     const pool = this.db.getReadPool();
     const indexResult = await pool.query<UserOrderIndexEntry>(
@@ -183,26 +146,11 @@ export class OrdersDbRepository {
     if (indexResult.rows.length === 0) return null;
     const entry = indexResult.rows[0];
 
-    if (entry.tier === 2) {
-      const results = await this.findHotOrders([orderId]);
-      return results[0] ?? null;
-    }
-    if (entry.tier === 3) {
-      const results = await this.findWarmOrders([orderId]);
-      return results[0] ?? null;
-    }
-    const results = await this.findColdOrders([entry]);
-    return results[0] ?? null;
+    if (entry.tier === 2) return (await this.findHotOrders([orderId]))[0] ?? null;
+    if (entry.tier === 3) return (await this.findWarmOrders([orderId]))[0] ?? null;
+    return (await this.findColdOrders([entry]))[0] ?? null;
   }
 
-  /**
-   * Create a new order with its items inside a transaction on the primary pool.
-   * Also writes to user_order_index as tier-2 (hot).
-   *
-   * @param userId - Owner of the order
-   * @param dto - Order creation payload
-   * @returns The new order's ID
-   */
   async createOrder(userId: number, dto: CreateOrderDto): Promise<{ orderId: bigint }> {
     const pool = this.db.getPrimaryPool();
     const client = await pool.connect();
@@ -210,11 +158,10 @@ export class OrdersDbRepository {
       await client.query('BEGIN');
 
       const productIds = dto.items.map(i => i.productId);
-      const productsRes = await client.query<{
-        product_id: string;
-        price: string;
-        name: string;
-      }>('SELECT product_id, price, name FROM products WHERE product_id = ANY($1)', [productIds]);
+      const productsRes = await client.query<{ product_id: string; price: string; name: string }>(
+        'SELECT product_id, price, name FROM products WHERE product_id = ANY($1)',
+        [productIds],
+      );
       const productMap = new Map(productsRes.rows.map(p => [parseInt(p.product_id, 10), p]));
 
       const totalAmount = dto.items.reduce((sum, item) => {
@@ -222,7 +169,6 @@ export class OrdersDbRepository {
         return sum + (product ? parseFloat(product.price) * item.quantity : 0);
       }, 0);
 
-      const orderNumber = `ORD-${Date.now()}-${userId}`;
       const orderRes = await client.query<{ order_id: bigint }>(
         `INSERT INTO orders_recent
            (user_id, order_number, total_amount, status, shipping_address,
@@ -231,7 +177,7 @@ export class OrdersDbRepository {
          RETURNING order_id`,
         [
           userId,
-          orderNumber,
+          `ORD-${Date.now()}-${userId}`,
           totalAmount.toFixed(2),
           JSON.stringify(dto.shippingAddress),
           dto.paymentMethod,
@@ -244,18 +190,15 @@ export class OrdersDbRepository {
       for (const item of dto.items) {
         const product = productMap.get(item.productId)!;
         const unitPrice = parseFloat(product.price);
-        const tax = parseFloat((unitPrice * 0.18).toFixed(2));
         await client.query(
-          `INSERT INTO order_items_recent
-             (order_id, product_id, quantity, unit_price, tax_amount)
+          `INSERT INTO order_items_recent (order_id, product_id, quantity, unit_price, tax_amount)
            VALUES ($1,$2,$3,$4,$5)`,
-          [orderId, item.productId, item.quantity, unitPrice, tax],
+          [orderId, item.productId, item.quantity, unitPrice, +(unitPrice * 0.18).toFixed(2)],
         );
       }
 
       await client.query(
-        `INSERT INTO user_order_index (user_id, order_id, created_at, tier)
-         VALUES ($1,$2,NOW(),2)`,
+        `INSERT INTO user_order_index (user_id, order_id, created_at, tier) VALUES ($1,$2,NOW(),2)`,
         [userId, orderId],
       );
 

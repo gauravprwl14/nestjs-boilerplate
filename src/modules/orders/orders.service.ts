@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OrdersRepository } from './orders.repository';
+import { OrdersDbService } from '@database/orders/orders.db-service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { Order, PaginatedOrders } from './interfaces/order-response.interface';
 import { OrderWithItems } from '@database/interfaces';
@@ -10,13 +10,13 @@ import { DAT } from '@errors/error-codes';
 @Injectable()
 export class OrdersService {
   constructor(
-    private readonly repo: OrdersRepository,
+    private readonly ordersDb: OrdersDbService,
     private readonly logger: AppLogger,
   ) {}
 
   async getUserOrders(userId: number, page: number, limit: number): Promise<PaginatedOrders> {
     const offset = (page - 1) * limit;
-    const { entries, total } = await this.repo.findIndexByUser(userId, limit, offset);
+    const { entries, total } = await this.ordersDb.findIndexByUser(userId, limit, offset);
 
     if (entries.length === 0) return { orders: [], total: 0, page, limit };
 
@@ -25,9 +25,9 @@ export class OrdersService {
     const coldEntries = entries.filter(e => e.tier === 4);
 
     const [hot, warm, cold] = await Promise.all([
-      this.repo.findHotOrders(hotIds),
-      this.repo.findWarmOrders(warmIds),
-      this.repo.findColdOrders(coldEntries),
+      this.ordersDb.findHotOrders(hotIds),
+      this.ordersDb.findWarmOrders(warmIds),
+      this.ordersDb.findColdOrders(coldEntries),
     ]);
 
     this.logger.logEvent('orders.user.fetched', {
@@ -42,15 +42,13 @@ export class OrdersService {
   }
 
   async getOrderById(orderId: bigint): Promise<Order> {
-    const order = await this.repo.findOrderById(orderId);
-    if (!order) {
-      throw new ErrorException(DAT.NOT_FOUND, { message: `Order ${orderId} not found` });
-    }
+    const order = await this.ordersDb.findOrderById(orderId);
+    if (!order) throw new ErrorException(DAT.NOT_FOUND, { message: `Order ${orderId} not found` });
     return this.toResponse(order);
   }
 
   async createOrder(userId: number, dto: CreateOrderDto): Promise<{ orderId: string }> {
-    const { orderId } = await this.repo.createOrder(userId, dto);
+    const { orderId } = await this.ordersDb.createOrder(userId, dto);
     this.logger.logEvent('order.created', { attributes: { userId, orderId: orderId.toString() } });
     return { orderId: orderId.toString() };
   }

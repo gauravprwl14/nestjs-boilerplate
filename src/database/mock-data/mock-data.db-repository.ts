@@ -9,15 +9,6 @@ export class MockDataDbRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
-  /**
-   * Query row counts across all storage tiers:
-   *  - orders_recent (hot) via getReadPool()
-   *  - order_metadata_archive (warm) via getMetadataPool()
-   *  - archived_orders in each cold archive via getAllArchives()
-   *  - tier distribution from user_order_index
-   *
-   * @returns Structured summary of data across all tiers
-   */
   async getStatus(): Promise<Record<string, unknown>> {
     const pool = this.db.getReadPool();
     const [hot, index] = await Promise.all([
@@ -29,17 +20,17 @@ export class MockDataDbRepository {
       ),
     ]);
 
-    const metaPool = this.db.getMetadataPool();
-    const warm = await metaPool.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM order_metadata_archive',
-    );
+    const warm = await this.db
+      .getMetadataPool()
+      .query<{ count: string }>('SELECT COUNT(*) AS count FROM order_metadata_archive');
 
     const coldStats: Record<string, number> = {};
     for (const [_year, configs] of this.registry.getAllArchives()) {
       for (const cfg of configs) {
         if (cfg.tier !== 4) continue;
-        const p = this.registry.getPoolForArchive(cfg);
-        const r = await p.query<{ count: string }>('SELECT COUNT(*) AS count FROM archived_orders');
+        const r = await this.registry
+          .getPoolForArchive(cfg)
+          .query<{ count: string }>('SELECT COUNT(*) AS count FROM archived_orders');
         coldStats[cfg.databaseName] = parseInt(r.rows[0].count, 10);
       }
     }
@@ -60,16 +51,10 @@ export class MockDataDbRepository {
     };
   }
 
-  /**
-   * Return the count of rows in the hot orders table.
-   *
-   * @returns The number of rows in orders_recent
-   */
   async getHotOrderCount(): Promise<number> {
-    const pool = this.db.getReadPool();
-    const result = await pool.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM orders_recent',
-    );
+    const result = await this.db
+      .getPrimaryPool()
+      .query<{ count: string }>('SELECT COUNT(*) AS count FROM orders_recent');
     return parseInt(result.rows[0].count, 10);
   }
 }

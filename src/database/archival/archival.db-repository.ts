@@ -15,11 +15,6 @@ export class ArchivalDbRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
-  /**
-   * Query pg_database_size() from primary, metadata, and each cold archive.
-   *
-   * @returns Object with primary, metadataArchive, and coldArchives fields
-   */
   async getDatabaseSizes(): Promise<Record<string, unknown>> {
     const primary = await this.db.getPrimaryPool().query<DbSizeRow>(
       `SELECT pg_database_size(current_database())::text AS size_bytes,
@@ -70,11 +65,6 @@ export class ArchivalDbRepository {
     };
   }
 
-  /**
-   * Return COUNT from orders_recent and a tier distribution from user_order_index.
-   *
-   * @returns Object with hotOrders count and tierDistribution array
-   */
   async getStats(): Promise<Record<string, unknown>> {
     const pool = this.db.getReadPool();
     const [hotCount, indexDist] = await Promise.all([
@@ -83,7 +73,6 @@ export class ArchivalDbRepository {
         'SELECT tier, COUNT(*) AS count FROM user_order_index GROUP BY tier ORDER BY tier',
       ),
     ]);
-
     return {
       hotOrders: parseInt(hotCount.rows[0].count, 10),
       tierDistribution: indexDist.rows.map(r => ({
@@ -94,39 +83,12 @@ export class ArchivalDbRepository {
     };
   }
 
-  /**
-   * Return the registry config for a given year's cold archive.
-   *
-   * @param year - The archive year to look up
-   * @returns Archive config fields or an error object if not found
-   */
   async getArchiveForYear(year: number): Promise<Record<string, unknown>> {
     const cfg = this.registry.getArchiveForYear(year, 4);
     if (!cfg) return { error: `No cold archive found for year ${year}` };
-    return {
-      databaseName: cfg.databaseName,
-      host: cfg.host,
-      port: cfg.port,
-      tier: cfg.tier,
-    };
+    return { databaseName: cfg.databaseName, host: cfg.host, port: cfg.port, tier: cfg.tier };
   }
 
-  /**
-   * Move the oldest N hot orders (older than 90 days) from orders_recent into
-   * order_metadata_archive using a dual-transaction approach.
-   *
-   * Steps:
-   *   1. Fetch oldest N candidates WHERE created_at < NOW() - INTERVAL '90 days'
-   *   2. BEGIN on both primary and metadata clients
-   *   3. Bulk INSERT into order_metadata_archive via unnest
-   *   4. UPDATE user_order_index SET tier=3
-   *   5. DELETE FROM orders_recent (CASCADE removes order_items_recent)
-   *   6. INSERT into partition_simulation log
-   *   7. COMMIT both; ROLLBACK on error
-   *
-   * @param batchSize - Number of orders to rotate per call (default 1000)
-   * @returns Summary of the rotation operation
-   */
   async simulateRotation(batchSize: number): Promise<Record<string, unknown>> {
     const primaryPool = this.db.getPrimaryPool();
     const metadataPool = this.db.getMetadataPool();
@@ -141,10 +103,8 @@ export class ArchivalDbRepository {
       created_at: Date;
     }>(
       `SELECT order_id, user_id, order_number, total_amount, status, payment_method, created_at
-       FROM orders_recent
-       WHERE created_at < NOW() - INTERVAL '90 days'
-       ORDER BY created_at ASC
-       LIMIT $1`,
+       FROM orders_recent WHERE created_at < NOW() - INTERVAL '90 days'
+       ORDER BY created_at ASC LIMIT $1`,
       [batchSize],
     );
 
@@ -153,7 +113,6 @@ export class ArchivalDbRepository {
     }
 
     const orderIds = candidatesRes.rows.map(r => r.order_id);
-
     const primaryClient = await primaryPool.connect();
     const metadataClient = await metadataPool.connect();
 
@@ -180,13 +139,10 @@ export class ArchivalDbRepository {
       );
 
       await primaryClient.query(
-        `UPDATE user_order_index SET tier = 3, archive_location = 'metadata_archive_db'
-         WHERE order_id = ANY($1)`,
+        `UPDATE user_order_index SET tier = 3, archive_location = 'metadata_archive_db' WHERE order_id = ANY($1)`,
         [orderIds],
       );
-
       await primaryClient.query('DELETE FROM orders_recent WHERE order_id = ANY($1)', [orderIds]);
-
       await primaryClient.query(
         `INSERT INTO partition_simulation (partition_date, is_rotated, rotated_at, records_moved)
          VALUES (CURRENT_DATE, true, NOW(), $1)`,
