@@ -2,12 +2,30 @@ import { Injectable } from '@nestjs/common';
 import { MultiDbService } from '@database/multi-db.service';
 import { ArchiveRegistryService } from '@database/archive-registry.service';
 
+/**
+ * Internal shape for pg_database_size() query results used only within this repository.
+ * Numeric values arrive as strings from the pg driver and are not parsed here —
+ * callers receive them as-is for diagnostic/display purposes.
+ */
 interface DbSizeRow {
+  /** Raw byte count returned by pg_database_size(), cast to text */
   size_bytes: string;
+  /** Size in megabytes rounded to 2 decimal places, cast to text */
   size_mb: string;
+  /** String-encoded COUNT(*) of the primary table for each tier */
   order_count: string;
 }
 
+/**
+ * Raw SQL repository for archival-plane diagnostics and partition rotation.
+ *
+ * This repository is the only place that issues cross-tier queries spanning the
+ * primary, metadata, and cold archive pools simultaneously.  Methods here tend to
+ * be heavier than the order-serving queries and should not be placed in hot paths.
+ *
+ * Injected into ArchivalDbService — feature controllers must not depend on this
+ * class directly.
+ */
 @Injectable()
 export class ArchivalDbRepository {
   constructor(
@@ -15,6 +33,16 @@ export class ArchivalDbRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
+  /**
+   * Queries `pg_database_size()` on the primary, the metadata server, and every
+   * active cold-archive database registered in the ArchiveRegistryService.
+   *
+   * This is intentionally heavy — it serialises queries across N cold archive
+   * pools and should only be called from admin/diagnostic endpoints, never from
+   * the order-serving hot path.
+   *
+   * @returns Structured object with primary, metadataArchive, and coldArchives size info
+   */
   async getDatabaseSizes(): Promise<Record<string, unknown>> {
     const primary = await this.db.getPrimaryPool().query<DbSizeRow>(
       `SELECT pg_database_size(current_database())::text AS size_bytes,
@@ -65,6 +93,15 @@ export class ArchivalDbRepository {
     };
   }
 
+  /**
+   * Returns a lightweight operational snapshot: the live hot-order count from
+   * `orders_recent` and the tier distribution from `user_order_index`.
+   *
+   * Both queries run in parallel against the read replica, making this safe to
+   * call from monitoring or health-check endpoints without stressing the primary.
+   *
+   * @returns Object with hotOrders count and tierDistribution array
+   */
   async getStats(): Promise<Record<string, unknown>> {
     const pool = this.db.getReadPool();
     const [hotCount, indexDist] = await Promise.all([
@@ -83,12 +120,42 @@ export class ArchivalDbRepository {
     };
   }
 
+  /**
+   * Returns metadata about the cold-tier (tier 4) archive database registered
+   * for the given calendar year, or an error descriptor if none is configured.
+   *
+   * This is a pure registry lookup — no DB query is issued.
+   *
+   * @param year - The archive calendar year to look up (e.g. 2022, 2023)
+   * @returns Connection metadata object, or an object with an `error` key if no cold archive exists
+   */
   async getArchiveForYear(year: number): Promise<Record<string, unknown>> {
     const cfg = this.registry.getArchiveForYear(year, 4);
     if (!cfg) return { error: `No cold archive found for year ${year}` };
     return { databaseName: cfg.databaseName, host: cfg.host, port: cfg.port, tier: cfg.tier };
   }
 
+  /**
+   * Simulates a hot→warm partition rotation for orders older than 90 days.
+   *
+   * The rotation is a dual-transaction operation to maintain consistency across
+   * two separate Postgres servers (primary and metadata):
+   * 1. Candidates are selected from `orders_recent` on the primary (no transaction yet).
+   * 2. BEGIN is issued on both primary and metadata clients simultaneously.
+   * 3. Rows are INSERT'd into `order_metadata_archive` on metadata (ON CONFLICT DO NOTHING
+   *    guards against re-running with overlapping batches).
+   * 4. `user_order_index` is updated to tier=3 and `orders_recent` rows are DELETEd on primary.
+   * 5. A `partition_simulation` audit row is written on primary.
+   * 6. Both transactions are COMMITted.  On any error, both are ROLLBACKed before re-throwing.
+   *
+   * Note: The dual-commit is NOT two-phase commit (2PC) — a crash between the two
+   * COMMITs would leave the data in an inconsistent state.  This is a simulation
+   * intended to demonstrate the rotation logic, not a production-safe implementation.
+   *
+   * @param batchSize - Maximum number of orders to rotate in a single call (defaults to 1000 via service)
+   * @returns Summary object with message, source/destination table names, and recordsMoved count
+   * @throws If either database transaction fails — both sides are rolled back before throwing
+   */
   async simulateRotation(batchSize: number): Promise<Record<string, unknown>> {
     const primaryPool = this.db.getPrimaryPool();
     const metadataPool = this.db.getMetadataPool();

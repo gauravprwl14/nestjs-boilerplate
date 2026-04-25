@@ -4,6 +4,18 @@ import { ArchiveRegistryService } from '@database/archive-registry.service';
 import { UserOrderIndexEntry, OrderRow, OrderItemRow, OrderWithItems } from '@database/interfaces';
 import { CreateOrderDto } from '@modules/orders/dto/create-order.dto';
 
+/**
+ * Raw SQL repository for all order-related queries across the three storage tiers.
+ *
+ * Injected into OrdersDbService — feature services must never depend on this class
+ * directly.  Each method is responsible for selecting the correct pg.Pool (primary
+ * for writes, read replica for hot/warm lookups, archive pool for cold).
+ *
+ * Tier routing summary:
+ * - hot (tier 2)  → `orders_recent` + `order_items_recent` on read replica
+ * - warm (tier 3) → `order_metadata_archive` on metadata pool (items not stored)
+ * - cold (tier 4) → `archived_orders` + `archived_order_items` on year-sharded archive pool
+ */
 @Injectable()
 export class OrdersDbRepository {
   constructor(
@@ -11,6 +23,18 @@ export class OrdersDbRepository {
     private readonly registry: ArchiveRegistryService,
   ) {}
 
+  /**
+   * Fetches a paginated page of `user_order_index` rows for the given user,
+   * along with the unpaginated total count (needed by callers to build
+   * pagination metadata without a second request).
+   *
+   * Both queries run in parallel against the read replica to minimise latency.
+   *
+   * @param userId - Numeric user ID to filter by
+   * @param limit - Maximum number of index entries to return (page size)
+   * @param offset - Zero-based row offset for pagination
+   * @returns Object containing the index entries (ordered newest-first) and total count
+   */
   async findIndexByUser(
     userId: number,
     limit: number,
@@ -38,6 +62,15 @@ export class OrdersDbRepository {
     };
   }
 
+  /**
+   * Fetches full order details (header + line items) from the hot tier for
+   * all given order IDs in a single pair of parallel queries against the read replica.
+   * Items are joined in-memory by order_id to avoid a SQL JOIN across potentially
+   * large result sets.
+   *
+   * @param orderIds - Array of bigint order IDs to fetch; returns empty array immediately if empty
+   * @returns OrderWithItems records with tier=2 and tierName='hot'
+   */
   async findHotOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getReadPool();
@@ -70,6 +103,15 @@ export class OrdersDbRepository {
     }));
   }
 
+  /**
+   * Fetches order summaries from the warm tier (metadata archive DB).
+   * Only header-level fields are stored in the warm archive — line items are
+   * intentionally omitted to keep metadata storage lean.  Callers receive an
+   * empty `items` array and should surface this limitation in API responses.
+   *
+   * @param orderIds - Array of bigint order IDs; returns empty array immediately if empty
+   * @returns OrderWithItems records with tier=3, tierName='warm', and items=[]
+   */
   async findWarmOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
     if (orderIds.length === 0) return [];
     const pool = this.db.getMetadataPool();
@@ -89,6 +131,20 @@ export class OrdersDbRepository {
     }));
   }
 
+  /**
+   * Fetches full order details from cold-tier (year-sharded) archive databases.
+   *
+   * Groups index entries by their `archiveLocation` string (e.g. "archive_2022"),
+   * parses the year from that string, resolves the appropriate pg.Pool via the
+   * ArchiveRegistryService, then fans out parallel queries — one pair (orders +
+   * items) per distinct archive location.  Results are flattened into a single array.
+   *
+   * Entries with a null archiveLocation are silently skipped; this should not
+   * occur if the index is consistent but avoids crashing on data anomalies.
+   *
+   * @param entries - UserOrderIndexEntry rows with tier=4; each must have a non-null archiveLocation
+   * @returns OrderWithItems records with tier=4 and tierName='cold'; empty array if all pools are unresolved
+   */
   async findColdOrders(entries: UserOrderIndexEntry[]): Promise<OrderWithItems[]> {
     if (entries.length === 0) return [];
     const byLocation = new Map<string, bigint[]>();
@@ -135,6 +191,16 @@ export class OrdersDbRepository {
     return (await Promise.all(promises)).flat();
   }
 
+  /**
+   * Looks up a single order across all storage tiers by its order ID.
+   *
+   * First consults `user_order_index` on the read replica (O(1) via PK) to
+   * determine which tier holds the data, then delegates to the appropriate
+   * tier-specific method.  Returns null if the order ID is not found in the index.
+   *
+   * @param orderId - bigint order PK to look up
+   * @returns Fully hydrated OrderWithItems if found, or null
+   */
   async findOrderById(orderId: bigint): Promise<OrderWithItems | null> {
     const pool = this.db.getReadPool();
     const indexResult = await pool.query<UserOrderIndexEntry>(
@@ -151,6 +217,24 @@ export class OrdersDbRepository {
     return (await this.findColdOrders([entry]))[0] ?? null;
   }
 
+  /**
+   * Persists a new order in a single primary-pool transaction spanning three tables:
+   * 1. `orders_recent` — order header row (status defaults to "pending")
+   * 2. `order_items_recent` — one row per DTO item; unit_price is read from the
+   *    `products` table at insertion time so the stored price reflects the catalogue
+   *    value at order creation, not the client-submitted value.
+   * 3. `user_order_index` — index entry pointing to the hot tier (tier=2), enabling
+   *    future lookups without scanning orders_recent.
+   *
+   * Tax is calculated as 18% of unit_price at insertion time.  If the transaction
+   * fails for any reason (constraint violation, pool timeout, etc.) a ROLLBACK is
+   * issued and the error is re-thrown to the caller.
+   *
+   * @param userId - ID of the authenticated user placing the order (read from CLS by the service layer)
+   * @param dto - Validated create-order payload including items, shipping, and payment details
+   * @returns The bigint orderId of the newly created order
+   * @throws If any INSERT fails (e.g. unknown productId, constraint violation) after rolling back
+   */
   async createOrder(userId: number, dto: CreateOrderDto): Promise<{ orderId: bigint }> {
     const pool = this.db.getPrimaryPool();
     const client = await pool.connect();

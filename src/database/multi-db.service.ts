@@ -5,18 +5,31 @@ import { AppLogger } from '@logger/logger.service';
 import { PoolConfig } from '@database/interfaces';
 
 /**
- * Manages pg.Pool instances for the multi-tier database setup:
- * - primary: hot writes (max 20)
- * - replica-1, replica-2: reads via round-robin (max 15 each)
- * - metadata: warm tier (max 10)
- * - archive pools: cold tier, lazily initialised per DB (max 5 each)
+ * Central pool manager for the multi-tier Postgres topology.
+ *
+ * Pool layout:
+ * - **primary** (max 20) — single write source; all mutations go here.
+ * - **replica-1 / replica-2** (max 15 each) — streaming replicas for read
+ *   queries; distributed round-robin to spread load evenly.
+ * - **metadata** (max 10) — warm-tier archive DB holding order summaries
+ *   (no item details) for orders older than 90 days.
+ * - **archive pools** (max 5 each, lazy) — one pool per cold-archive year-shard,
+ *   created on first access and cached by "host:port:database" key.
+ *
+ * All fixed pools are created during `onModuleInit` and torn down in
+ * `onModuleDestroy`.  Cold archive pools are created lazily via `getArchivePool`.
  */
 @Injectable()
 export class MultiDbService implements OnModuleInit, OnModuleDestroy {
+  /** Write pool — routes every mutation to the primary Postgres server. */
   private primaryPool!: Pool;
+  /** Read replica pools; populated during onModuleInit with replica-1 and replica-2. */
   private replicaPools: Pool[] = [];
+  /** Warm-tier metadata pool for the metadata archive database. */
   private metadataPool!: Pool;
+  /** Lazily-initialised cold archive pools keyed by "host:port:database". */
   private archivePools = new Map<string, Pool>();
+  /** Monotonically incrementing counter used to implement round-robin replica selection. */
   private replicaCounter = 0;
 
   constructor(
@@ -143,6 +156,15 @@ export class MultiDbService implements OnModuleInit, OnModuleDestroy {
     return this.archivePools.get(key)!;
   }
 
+  /**
+   * Constructs a pg.Pool with standardised timeouts applied to every tier.
+   * idleTimeoutMillis=30 s releases idle connections quickly to avoid hitting
+   * server-side max_connections; connectionTimeoutMillis=5 s surfaces pool
+   * exhaustion as a fast error rather than an indefinite hang.
+   *
+   * @param cfg - Pool connection parameters including optional max client count
+   * @returns A configured but not yet verified pg.Pool
+   */
   private createPool(cfg: PoolConfig): Pool {
     return new Pool({
       host: cfg.host,
@@ -156,6 +178,14 @@ export class MultiDbService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Acquires a single client from the given pool and executes SELECT 1 to
+   * confirm the server is reachable before accepting traffic.
+   *
+   * @param pool - The pool to probe
+   * @param name - Human-readable name used in log events (e.g. "primary")
+   * @throws If the connection cannot be established within connectionTimeoutMillis
+   */
   private async verifyPool(pool: Pool, name: string): Promise<void> {
     const client: PoolClient = await pool.connect();
     await client.query('SELECT 1');

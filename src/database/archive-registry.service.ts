@@ -5,13 +5,21 @@ import { AppLogger } from '@logger/logger.service';
 import { ArchiveDbConfig } from '@database/interfaces';
 
 /**
- * Loads and caches the archive_databases registry from the primary DB.
+ * Loads and caches the `archive_databases` registry from the primary DB on startup.
  * Provides year-based routing helpers to obtain the correct pg.Pool for
  * warm (tier 3) and cold (tier 4) archive databases.
+ *
+ * The in-memory registry avoids hitting the primary on every request; it is
+ * populated once via `onModuleInit` and can be manually refreshed by calling
+ * `loadRegistry()` again (e.g. after a new archive year is provisioned).
  */
 @Injectable()
 export class ArchiveRegistryService implements OnModuleInit {
-  /** Map from archive year → list of ArchiveDbConfig entries for that year. */
+  /**
+   * In-memory cache of archive_databases rows grouped by archiveYear.
+   * A year may have multiple entries if both a warm (tier 3) and cold (tier 4)
+   * archive exist for the same calendar year.
+   */
   private registry = new Map<number, ArchiveDbConfig[]>();
 
   constructor(
@@ -19,7 +27,10 @@ export class ArchiveRegistryService implements OnModuleInit {
     private readonly logger: AppLogger,
   ) {}
 
-  /** Load the registry from the primary DB on startup. */
+  /**
+   * Triggers the initial registry load so that routing is available to all
+   * other services by the time the application accepts requests.
+   */
   async onModuleInit(): Promise<void> {
     await this.loadRegistry();
   }
