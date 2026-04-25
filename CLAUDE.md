@@ -150,6 +150,42 @@ export interface Order {
 
 ---
 
+## JSDoc Examples
+
+**Class:**
+
+```typescript
+/**
+ * DB-layer façade over OrdersDbRepository.
+ * Feature services inject this — repositories are an implementation detail.
+ */
+@Injectable()
+export class OrdersDbService { ... }
+```
+
+**Method:**
+
+```typescript
+/**
+ * Round-robin across replica-1 and replica-2.
+ * Falls back to primary when replica pool list is empty.
+ *
+ * @returns A read-only pg.Pool — do not use for writes
+ */
+getReadPool(): Pool { ... }
+```
+
+**Interface property:**
+
+```typescript
+export interface Order {
+  /** 2=hot (primary+replicas), 3=warm (metadata archive), 4=cold (year archive) */
+  tier: 2 | 3 | 4;
+}
+```
+
+---
+
 ## Error System
 
 Errors are represented as `ErrorException` instances (extends `Error`, NOT `HttpException`).
