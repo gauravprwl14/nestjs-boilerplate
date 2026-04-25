@@ -68,6 +68,6 @@ Grafana supports trace-to-logs correlation via the `traceId` field.
 | Variable                      | Purpose                                    | Default                 |
 | ----------------------------- | ------------------------------------------ | ----------------------- |
 | `OTEL_ENABLED`                | Enable/disable OTel SDK                    | `false`                 |
-| `OTEL_SERVICE_NAME`           | Service name in traces                     | `enterprise-twitter`    |
+| `OTEL_SERVICE_NAME`           | Service name in traces                     | `order-management`      |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTel Collector gRPC endpoint               | (required when enabled) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport: `grpc`, `http`, `http/protobuf` | `grpc`                  |

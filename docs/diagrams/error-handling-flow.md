@@ -3,7 +3,7 @@
 > See `docs/guides/FOR-Error-Handling.md` for the full feature guide.
 > See `docs/coding-guidelines/07-error-handling.md` for coding patterns.
 
-<!-- DOC-SYNC: Diagram updated on 2026-04-17. Taxonomy examples refreshed for Enterprise Twitter pivot (JWT/API-key stack removed; added VAL0007/VAL0008/AUZ0004/DAT0009/DAT0010). Please verify visual accuracy before committing. -->
+<!-- DOC-SYNC: Diagram updated on 2026-04-25. Domain is now order-management. Taxonomy row examples updated to reflect active codes. VAL0007/VAL0008/AUZ0004/DAT0009 remain in the registry but are unused in the order-management code paths. Please verify visual accuracy before committing. -->
 
 ## Exception Filter Chain
 
@@ -38,14 +38,14 @@ flowchart TD
 
 ## Error Code Taxonomy
 
-| Prefix | Domain               | Example                                                      |
-| ------ | -------------------- | ------------------------------------------------------------ |
-| `GEN`  | General / rate limit | `GEN0001` rate limit exceeded                                |
-| `VAL`  | Validation           | `VAL0001` invalid input, `VAL0007` department ids required, `VAL0008` department not in company |
-| `AUT`  | Authentication       | `AUT0001` unauthenticated (missing / unknown `x-user-id`)    |
-| `AUZ`  | Authorization        | `AUZ0001` access forbidden, `AUZ0004` cross-tenant access     |
-| `DAT`  | Database / data      | `DAT0001` not found, `DAT0003` unique violation, `DAT0009` department not found, `DAT0010` company not found |
-| `SRV`  | Server / infra       | `SRV0001` internal server error                              |
+| Prefix | Domain               | Example                                                                      |
+| ------ | -------------------- | ---------------------------------------------------------------------------- |
+| `GEN`  | General / rate limit | `GEN0001` rate limit exceeded                                                |
+| `VAL`  | Validation           | `VAL0001` invalid input / Zod validation failure                             |
+| `AUT`  | Authentication       | `AUT0001` unauthenticated (missing / non-integer `x-user-id`)                |
+| `AUZ`  | Authorization        | `AUZ0001` access forbidden                                                   |
+| `DAT`  | Database / data      | `DAT0001` not found, `DAT0003` unique violation, `DAT0010` company not found |
+| `SRV`  | Server / infra       | `SRV0001` internal server error                                              |
 
 ## Standard Error Response Shape
 
@@ -54,9 +54,9 @@ flowchart TD
   "success": false,
   "errors": [
     {
-      "code": "VAL0008",
-      "message": "One or more departments do not belong to your company",
-      "errorType": "VALIDATION",
+      "code": "DAT0001",
+      "message": "Order 12345 not found",
+      "errorType": "DATABASE",
       "errorCategory": "CLIENT",
       "retryable": false
     }
@@ -72,9 +72,9 @@ In non-production, the response may also include a `cause` chain on each error
 
 ## Prisma Error Mapping
 
-| Prisma Code | Mapped To                               | Description                                 |
-| ----------- | --------------------------------------- | ------------------------------------------- |
-| `P2002`     | `DAT0003` — Unique constraint violation | Duplicate email, department id in a company, etc. |
-| `P2025`     | `DAT0001` — Resource not found          | Record required for update/delete not found |
+| Prisma Code | Mapped To                               | Description                                                                 |
+| ----------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| `P2002`     | `DAT0003` — Unique constraint violation | Duplicate email, department id in a company, etc.                           |
+| `P2025`     | `DAT0001` — Resource not found          | Record required for update/delete not found                                 |
 | `P2003`     | `DAT0004` — Foreign key constraint      | Referenced record does not exist (e.g. cross-tenant composite FK violation) |
-| Others      | `DAT0007` — Query failed                | Unexpected Prisma error                     |
+| Others      | `DAT0007` — Query failed                | Unexpected Prisma error                                                     |

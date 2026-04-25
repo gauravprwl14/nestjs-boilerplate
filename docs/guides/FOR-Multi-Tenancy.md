@@ -1,8 +1,8 @@
 # FOR-Multi-Tenancy.md — Multi-Tenant Isolation Feature Guide
 
 > Related: `docs/architecture/high-level-architecture.md`,
-> `docs/architecture/database-design.md`, `docs/guides/FOR-Tweets.md`,
-> `docs/guides/FOR-Departments.md`, `README.md` § "Multi-Tenant Approach"
+> `docs/architecture/database-design.md`, `docs/guides/FOR-Orders.md`,
+> `README.md` § "Multi-Tenant Approach"
 
 ---
 
@@ -81,21 +81,24 @@ Service-level validation (layer ④) is owned by each feature service.
 
 ### MockAuthMiddleware
 
-Reads `x-user-id`, calls `UsersDbService.findAuthContext(id)` (NOT
-tenant-scoped — this query has to run before tenant context exists), sets CLS:
+Reads `x-user-id` (must be a positive integer 1–10 000). Validates the header,
+parses it to a `number`, and sets CLS — no DB lookup:
 
 ```
-ClsKey.USER_ID            = user.id
-ClsKey.COMPANY_ID         = user.companyId
-ClsKey.USER_DEPARTMENT_IDS = user.departmentIds
+ClsKey.USER_ID = parseInt(x-user-id, 10)
 ```
 
-Throws `AUT.UNAUTHENTICATED` on missing header or unknown user id.
+Throws `AUT.UNAUTHENTICATED` on missing header or non-positive integer value.
+
+> Note: In the enterprise-twitter domain `MockAuthMiddleware` called
+> `UsersDbService.findAuthContext()` to resolve `{ userId, companyId,
+userDepartmentIds }`. The order-management domain removed `UsersDbService`
+> and simplified middleware to a header parse only.
 
 ### AuthContextGuard
 
-Reads `ClsKey.COMPANY_ID`. If absent and the route is not `@Public()`, throws
-`AUT.UNAUTHENTICATED`.
+Reads `ClsKey.USER_ID`. If absent (or falsy) and the route is not `@Public()`,
+throws `AUT.UNAUTHENTICATED`.
 
 ### tenantScopeExtension
 
@@ -118,14 +121,11 @@ Reads `ClsKey.COMPANY_ID`. If absent and the route is not `@Public()`, throws
 
 ## 5. Error Cases
 
-| Scenario                                                          | Error Code | HTTP Status |
-| ----------------------------------------------------------------- | ---------- | ----------- |
-| Missing `x-user-id` header                                        | `AUT0001`  | 401         |
-| Unknown user id in `x-user-id`                                    | `AUT0001`  | 401         |
-| Guard reached without `companyId` in CLS                          | `AUT0001`  | 401         |
-| Write payload carries a different `companyId` than CLS            | `AUZ0004`  | 403         |
-| Tenant-scoped op attempted without CLS context or explicit bypass | `AUZ0004`  | 403         |
-| Referenced department not in caller's company                     | `VAL0008`  | 400         |
+| Scenario                              | Error Code | HTTP Status |
+| ------------------------------------- | ---------- | ----------- |
+| Missing `x-user-id` header            | `AUT0001`  | 401         |
+| `x-user-id` is not a positive integer | `AUT0001`  | 401         |
+| Guard reached without `userId` in CLS | `AUT0001`  | 401         |
 
 ---
 

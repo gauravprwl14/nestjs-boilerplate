@@ -4,9 +4,9 @@
 > `docs/architecture/database-design.md`,
 > `docs/architecture/service-architecture.md`
 
-> **Status:** OrdersModule is a stub on this branch (`feat/observability`).
-> Full implementation is in `feat/om-orders`. This guide describes the intended
-> design based on the database interfaces and pool routing already in place.
+> **Status:** OrdersModule is fully implemented. `OrdersController`, `OrdersService`,
+> `OrdersDbRepository`, and `OrdersDbService` are all wired in `DatabaseModule` and
+> `AppModule`.
 
 ---
 
@@ -50,10 +50,17 @@ GET /api/v1/orders/:id
 
 ```
 src/modules/orders/
-├── orders.module.ts          # Module registration (stub — providers TBD)
-├── orders.controller.ts      # HTTP route handlers (TBD)
-├── orders.service.ts         # Business logic + tier routing (TBD)
-└── dto/                      # Zod DTOs for request/response shapes (TBD)
+├── orders.module.ts              # Module registration
+├── orders.controller.ts          # HTTP route handlers
+├── orders.service.ts             # Business logic + tier routing
+├── interfaces/order-response.interface.ts  # Response shape
+└── dto/
+    ├── create-order.dto.ts       # Zod schema + CreateOrderDto type
+    └── query-orders.dto.ts       # Zod schema + pagination params
+
+src/database/orders/
+├── orders.db-repository.ts      # Raw pg SQL for orders_recent, user_order_index, warm/cold tiers
+└── orders.db-service.ts         # Service wrapper exported by DatabaseModule
 ```
 
 Key supporting types in `src/database/interfaces/index.ts`:
@@ -66,15 +73,19 @@ Key supporting types in `src/database/interfaces/index.ts`:
 
 ---
 
-## 4. Key Methods (Planned)
+## 4. Key Methods
 
-### OrdersService
+### OrdersService / OrdersDbRepository
 
-| Method                             | Description                                                             |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `findById(orderId)`                | Looks up `user_order_index`, then fetches from the correct tier pool    |
-| `findByUserId(userId, pagination)` | Queries hot tier first, then warm/cold via index                        |
-| `create(input)`                    | Writes to primary pool; inserts into `user_order_index` with `tier = 2` |
+| Method                                   | Description                                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------------------- |
+| `getOrderById(orderId)`                  | Looks up `user_order_index`, then fetches from the correct tier pool             |
+| `getUserOrders(userId, page, limit)`     | Paginates `user_order_index` entries, then batch-fetches from each tier          |
+| `createOrder(userId, dto)`               | Writes to primary pool; inserts into `user_order_index` with `tier = 2`          |
+| `findIndexByUser(userId, limit, offset)` | Paginated `user_order_index` rows (read replica)                                 |
+| `findHotOrders(orderIds)`                | Fetches `orders_recent` rows with joined `order_items_recent` (read replica)     |
+| `findWarmOrders(orderIds)`               | Fetches from `order_metadata_archive` on metadata pool (tier 3)                  |
+| `findColdOrder(orderId, year)`           | Fetches from per-year cold archive via `ArchiveRegistryService.getPoolForYear()` |
 
 ---
 
@@ -82,7 +93,7 @@ Key supporting types in `src/database/interfaces/index.ts`:
 
 | Scenario                    | Error Code                  | HTTP Status |
 | --------------------------- | --------------------------- | ----------- |
-| Order not found in any tier | `DAT.ORDER_NOT_FOUND` (TBD) | 404         |
+| Order not found in any tier | `DAT.NOT_FOUND` (`DAT0001`) | 404         |
 | Archive pool unavailable    | `SRV.INTERNAL_ERROR`        | 500         |
 | Missing `x-user-id` header  | `AUT0001`                   | 401         |
 

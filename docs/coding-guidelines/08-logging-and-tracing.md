@@ -20,18 +20,18 @@ Never use `console.log`. Never instantiate Pino directly.
 
 ```typescript
 // Structured event log — use for domain events
-this.logger.logEvent('tweet.created', {
-  attributes: { tweetId, companyId, authorId, visibility },
+this.logger.logEvent('order.created', {
+  attributes: { orderId, userId, tier: 2 },
 });
 
 // Error log — use in exception catch blocks
-this.logger.logError('tweets.create.failed', error, {
-  attributes: { companyId },
+this.logger.logError('orders.create.failed', error, {
+  attributes: { userId },
 });
 
 // Child logger with persistent context
-const childLogger = this.logger.child({ userId, companyId, requestId });
-childLogger.logEvent('department.created', { attributes: { departmentId } });
+const childLogger = this.logger.child({ userId, requestId });
+childLogger.logEvent('archival.rotation.completed', { attributes: { recordsMoved } });
 ```
 
 ## Log Levels
@@ -51,8 +51,8 @@ Apply `@Trace()` to service methods that represent meaningful units of work for 
 The decorator creates an OTel span around the method execution.
 
 ```typescript
-@Trace('tweets.create')
-async create(dto: CreateTweetDto): Promise<Tweet> {
+@Trace('orders.getOrderById')
+async getOrderById(orderId: bigint): Promise<OrderWithItems> {
   // ...
 }
 ```
@@ -67,7 +67,7 @@ Use this for services where you want comprehensive tracing without per-method de
 ```typescript
 @Injectable()
 @InstrumentClass()
-export class DepartmentsService {
+export class OrdersService {
   // All public methods get auto-traced
 }
 ```
@@ -79,9 +79,9 @@ Do **not** combine `@InstrumentClass` with per-method `@Trace` — you will get 
 Use metric decorators for business-level metrics (not request-level, which is auto-instrumented):
 
 ```typescript
-@IncrementCounter('tweets_created_total')
-@RecordDuration('tweets_create_duration_ms')
-async create(dto: CreateTweetDto): Promise<Tweet> { ... }
+@IncrementCounter('orders_created_total')
+@RecordDuration('orders_create_duration_ms')
+async createOrder(userId: number, dto: CreateOrderDto): Promise<OrderWithItems> { ... }
 ```
 
 ## addSpanAttributes
@@ -90,10 +90,10 @@ Add business context to the current OTel span for richer trace search:
 
 ```typescript
 this.telemetry.addSpanAttributes({
-  'tweet.id': tweetId,
-  'tweet.visibility': dto.visibility,
-  'company.id': companyId,
+  'order.id': orderId.toString(),
+  'order.tier': tier,
   'user.id': userId,
+  'db.pool': poolName,
 });
 ```
 

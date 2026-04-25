@@ -1,6 +1,6 @@
 # Service Architecture — NestJS Module Graph
 
-<!-- DOC-SYNC: Diagram updated on 2026-04-25 for the Order Management pivot (feat/observability). Departments + Tweets modules replaced by Orders + Archival + MockData stubs. DatabaseModule now provides MultiDbService + ArchiveRegistryService instead of per-entity DbServices. Please verify visual accuracy before committing. -->
+<!-- DOC-SYNC: Diagram updated on 2026-04-25. Departments + Tweets modules replaced by fully-implemented Orders + Archival + MockData modules. DatabaseModule now provides MultiDbService + ArchiveRegistryService + per-aggregate DbServices. Middleware description updated to reflect simplified MockAuthMiddleware (no DB lookup). Please verify visual accuracy before committing. -->
 
 ## Module Import Graph
 
@@ -15,9 +15,9 @@ graph TD
     DatabaseModule["DatabaseModule\n@Global\n+ MultiDbService + ArchiveRegistryService"]
     TelemetryModule["TelemetryModule\n@Global — TelemetryService"]
 
-    OrdersModule["OrdersModule\n(stub — feat/om-orders)"]
-    ArchivalModule["ArchivalModule\n(stub — feat/om-archival)"]
-    MockDataModule["MockDataModule\n(stub — feat/om-mock-data)"]
+    OrdersModule["OrdersModule\n(orders API — multi-tier routing)"]
+    ArchivalModule["ArchivalModule\n(archival stats + partition rotation)"]
+    MockDataModule["MockDataModule\n(data status + seeding)"]
 
     AppModule --> AppClsModule
     AppModule --> AppConfigModule
@@ -47,12 +47,12 @@ Global modules are registered once in `AppModule` and inject into any module wit
 
 ## Module Responsibilities
 
-| Module           | Controller(s) | Service(s)                                 | Key Providers                                              |
-| ---------------- | ------------- | ------------------------------------------ | ---------------------------------------------------------- |
-| `OrdersModule`   | (stub)        | (stub)                                     | — (full impl in feat/om-orders)                            |
-| `ArchivalModule` | (stub)        | (stub)                                     | — (full impl in feat/om-archival)                          |
-| `MockDataModule` | (stub)        | (stub)                                     | — (full impl in feat/om-mock-data)                         |
-| `DatabaseModule` | —             | `MultiDbService`, `ArchiveRegistryService` | `pg.Pool` instances (primary, replicas, metadata, archive) |
+| Module           | Controller(s)        | Service(s)                                                            | Key Providers                                              |
+| ---------------- | -------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `OrdersModule`   | `OrdersController`   | `OrdersService`, `OrdersDbRepository`                                 | `OrdersDbService` (injected from `DatabaseModule`)         |
+| `ArchivalModule` | `ArchivalController` | `ArchivalService`, `PartitionRotationService`, `ArchivalDbRepository` | Routes to correct tier pool via `ArchiveRegistryService`   |
+| `MockDataModule` | `MockDataController` | `MockDataService`, `MockDataDbRepository`                             | Data status + seeding instructions                         |
+| `DatabaseModule` | —                    | `MultiDbService`, `ArchiveRegistryService`                            | `pg.Pool` instances (primary, replicas, metadata, archive) |
 
 ## Middleware & Cross-Cutting Pipeline
 
@@ -60,8 +60,8 @@ Global modules are registered once in `AppModule` and inject into any module wit
 Request
   → RequestIdMiddleware        (inject x-request-id)
   → SecurityHeadersMiddleware  (Helmet headers)
-  → MockAuthMiddleware         (x-user-id → findAuthContext → set CLS tuple)
-  → AuthContextGuard (APP_GUARD)  (require companyId in CLS; @Public() opt-out)
+  → MockAuthMiddleware         (x-user-id → parse integer → set CLS { userId })
+  → AuthContextGuard (APP_GUARD)  (require userId in CLS; @Public() opt-out)
   → ZodValidationPipe          (per-route DTO validation)
   → Controller Handler
   → LoggingInterceptor         (log request + response duration)

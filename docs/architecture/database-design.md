@@ -111,7 +111,7 @@ creation.
 
 No models in this schema use soft delete. Data lifecycle is managed by the
 archival rotation pipeline (see `ArchivalModule` — full implementation in
-`feat/om-archival`).
+the `ArchivalModule`).
 
 ## Migration Workflow
 

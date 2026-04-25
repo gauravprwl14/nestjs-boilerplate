@@ -64,14 +64,14 @@ Datasources are provisioned from `docker/grafana/provisioning/datasources/dataso
 
 1. Make a request to any API endpoint with `OTEL_ENABLED=true`.
 2. Open Grafana → Explore → Select **Tempo** datasource.
-3. Search by service name `enterprise-twitter`.
+3. Search by service name `order-management` (or the value of `OTEL_SERVICE_NAME`).
 4. Traces should appear within 5–10 seconds.
 
 ## Verifying Logs Reach Loki
 
 1. Make a request that generates a log (any request is logged by `LoggingInterceptor`).
 2. Open Grafana → Explore → Select **Loki** datasource.
-3. Query: `{service_name="enterprise-twitter"}`.
+3. Query: `{service_name="order-management"}` (or substitute the value of `OTEL_SERVICE_NAME`).
 
 ## Verifying Metrics Reach Prometheus
 

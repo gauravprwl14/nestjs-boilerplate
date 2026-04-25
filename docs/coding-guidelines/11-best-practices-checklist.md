@@ -21,20 +21,19 @@ Use this checklist before opening a pull request.
 
 ## Database
 
-- [ ] Tenant-scoped aggregates go through `prisma.tenantScoped` (injected automatically in repositories that route `delegateFor` via it)
-- [ ] Tenant-scoped writes never use nested `connect` — use flat payloads with explicit `companyId`
-- [ ] Raw SQL queries hard-code `company_id = ${companyId}` in every predicate and CTE
-- [ ] Soft-deletable queries include `deletedAt: null` filter (no soft-deletable aggregates ship in this build, but the pattern still applies)
-- [ ] Multi-step mutations that must be atomic use `DatabaseService.runInTransaction()` (not `prisma.$transaction()` directly from feature code)
+- [ ] All raw SQL queries are parameterised — no string interpolation of user-supplied values
+- [ ] `getReadPool()` used for SELECT queries; `getPrimaryPool()` used for INSERT/UPDATE/DELETE
+- [ ] Archive reads route through `ArchiveRegistryService.getPoolForYear(year, tier)` — no hard-coded host/port in feature code
+- [ ] `user_order_index` consulted before fetching from warm/cold tiers — no blind cross-tier scans
+- [ ] Multi-statement transactions use `pool.connect()` → `BEGIN` / `COMMIT` / `ROLLBACK` with `finally` release
 - [ ] New columns with high query frequency have an index in the Prisma schema
-- [ ] New tenant-scoped models are added to `TENANT_SCOPED_MODELS` in `src/database/extensions/tenant-scope.extension.ts`
 
 ## Auth & Security
 
 - [ ] New routes rely on the global `AuthContextGuard` (via `MockAuthMiddleware` publishing CLS). Routes that must stay anonymous are decorated with `@Public()`
-- [ ] `companyId` and `authorId` are NEVER read from the request body — always from CLS
+- [ ] `userId` is NEVER read from the request body — always from `ClsKey.USER_ID`
 - [ ] Controllers that require mock auth add `@ApiSecurity('x-user-id')` for Swagger
-- [ ] Cross-tenant attempts fail with `AUZ.CROSS_TENANT_ACCESS` (extension) or `VAL.DEPARTMENT_NOT_IN_COMPANY` (service pre-validation)
+- [ ] User-scoped SQL queries always include `WHERE user_id = $N` — no cross-user data leakage
 
 ## Module / DI
 

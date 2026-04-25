@@ -33,9 +33,9 @@ src/
 ├── telemetry/                 # OTel SDK init, TelemetryService, decorators
 │   └── decorators/            # @Trace, @InstrumentClass, @IncrementCounter, @RecordDuration
 └── modules/                   # Feature modules — each is self-contained
-    ├── orders/                # Orders API (stub — full impl in feat/om-orders)
-    ├── archival/              # Archival pipeline (stub — full impl in feat/om-archival)
-    └── mock-data/             # Seed/mock data generation (stub — full impl in feat/om-mock-data)
+    ├── orders/                # Orders API — GET/POST orders, multi-tier routing via user_order_index
+    ├── archival/              # Archival pipeline — partition rotation, stats, database sizes
+    └── mock-data/             # Mock data status + seeding
 ```
 
 ## Rules
@@ -48,7 +48,7 @@ new middleware) under `src/common/`.
 
 **Do not** create cross-module imports between feature modules. If two feature
 modules need shared logic, extract it to `src/common/` or — if it's database
-logic — introduce a new `*DbService` under `src/database/`.
+logic — add a new `*DbRepository` / `*DbService` under `src/database/` and register them in `DatabaseModule`.
 
 **Do not** add business logic to `src/config/` or `src/bootstrap/`. Those
 directories contain only setup code.

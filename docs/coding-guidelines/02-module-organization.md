@@ -26,16 +26,17 @@ export class ExampleModule {}
 
 ## DI Import Rules
 
-| Scenario                                   | What to do                                                           |
-| ------------------------------------------ | -------------------------------------------------------------------- |
-| Need `PrismaService` (infrastructure only) | Inject directly — `PrismaModule` is `@Global()`                      |
-| Need data access for an aggregate          | Inject the `*DbService` directly — `DatabaseModule` is `@Global()`   |
-| Need cross-aggregate transactions          | Inject `DatabaseService` directly — `DatabaseModule` is `@Global()`  |
-| Need `AppLogger`                           | Inject directly — `AppLoggerModule` is `@Global()`                   |
-| Need `TelemetryService`                    | Inject directly — `TelemetryModule` is `@Global()`                   |
-| Need `AppConfigService`                    | Inject directly — `AppConfigModule` is `@Global()`                   |
-| Need a service from another feature module | Add that module to `imports: []` and ensure it `exports` the service |
-| Two modules depend on each other           | This is a circular dependency — refactor shared logic to `common/`   |
+| Scenario                                   | What to do                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------------- |
+| Need `PrismaService` (infrastructure only) | Inject directly — `PrismaModule` is `@Global()`                            |
+| Need data access (pools)                   | Inject `MultiDbService` directly — `DatabaseModule` is `@Global()`         |
+| Need archive pool routing                  | Inject `ArchiveRegistryService` directly — `DatabaseModule` is `@Global()` |
+| Need aggregate-level DB ops                | Inject the `*DbService` directly — `DatabaseModule` is `@Global()`         |
+| Need `AppLogger`                           | Inject directly — `AppLoggerModule` is `@Global()`                         |
+| Need `TelemetryService`                    | Inject directly — `TelemetryModule` is `@Global()`                         |
+| Need `AppConfigService`                    | Inject directly — `AppConfigModule` is `@Global()`                         |
+| Need a service from another feature module | Add that module to `imports: []` and ensure it `exports` the service       |
+| Two modules depend on each other           | This is a circular dependency — refactor shared logic to `common/`         |
 
 ## Provider Registration Patterns
 
@@ -71,7 +72,7 @@ The `AuthContextGuard` is registered as a global guard in `AppModule`:
 providers: [{ provide: APP_GUARD, useClass: AuthContextGuard }];
 ```
 
-It verifies that `companyId` is present in CLS (populated by
+It verifies that `userId` is present in CLS (populated by
 `MockAuthMiddleware`). Routes that must stay anonymous (Swagger, liveness
 probes) mark themselves with `@Public()`.
 

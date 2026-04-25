@@ -63,12 +63,12 @@ src/logger/
 
 ### AppLogger
 
-| Method                             | Usage                                                                                      |
-| ---------------------------------- | ------------------------------------------------------------------------------------------ |
-| `logEvent(event, payload)`         | Semantic domain event: `logEvent('tweet.created', { attributes: { tweetId, companyId } })` |
-| `logError(name, error, opts?)`     | Structured error log with stack + code + OTel span recording                               |
-| `child(bindings)`                  | Returns child logger with persistent fields (e.g. `{ userId, companyId }`)                 |
-| `log(msg, { level, attributes? })` | Escape hatch for non-INFO/non-ERROR levels                                                 |
+| Method                             | Usage                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| `logEvent(event, payload)`         | Semantic domain event: `logEvent('order.created', { attributes: { orderId, userId, tier } })` |
+| `logError(name, error, opts?)`     | Structured error log with stack + code + OTel span recording                                  |
+| `child(bindings)`                  | Returns child logger with persistent fields (e.g. `{ userId, requestId }`)                    |
+| `log(msg, { level, attributes? })` | Escape hatch for non-INFO/non-ERROR levels                                                    |
 
 ### TelemetryService
 
@@ -82,20 +82,20 @@ src/logger/
 
 ```typescript
 // Wrap a single method in a span
-@Trace('tweets.timeline')
-async timeline(): Promise<TimelineTweet[]> { ... }
+@Trace('orders.getOrderById')
+async getOrderById(orderId: bigint): Promise<OrderWithItems> { ... }
 
 // Wrap every public method in spans
 @InstrumentClass()
-export class DepartmentsService { ... }
+export class OrdersService { ... }
 
 // Increment a counter each time method is called
-@IncrementCounter('tweets_created_total')
-async create(dto: CreateTweetDto) { ... }
+@IncrementCounter('orders_created_total')
+async createOrder(userId: number, dto: CreateOrderDto) { ... }
 
 // Record the method duration as a histogram
-@RecordDuration('tweets_timeline_duration_ms')
-async timeline() { ... }
+@RecordDuration('orders_fetch_duration_ms')
+async getUserOrders(userId: number) { ... }
 ```
 
 ---
@@ -116,7 +116,7 @@ async timeline() { ... }
 | Variable                      | Purpose                               | Default               |
 | ----------------------------- | ------------------------------------- | --------------------- |
 | `OTEL_ENABLED`                | Enable OTel SDK                       | `false`               |
-| `OTEL_SERVICE_NAME`           | Service name in all telemetry signals | `enterprise-twitter`  |
+| `OTEL_SERVICE_NAME`           | Service name in all telemetry signals | `order-management`    |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector gRPC endpoint               | Required when enabled |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Transport protocol                    | `grpc`                |
 | `LOG_LEVEL`                   | Minimum log level                     | `info`                |

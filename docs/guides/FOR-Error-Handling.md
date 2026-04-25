@@ -8,6 +8,7 @@
 
 Every API client needs a predictable error format to build reliable UIs and automated integrations.
 The error handling system guarantees:
+
 - Every error returns the same JSON shape with a machine-readable `code`.
 - Non-userFacing errors (bugs, infra failures) have their messages masked so internal details never reach clients.
 - Prisma constraint violations are automatically translated to meaningful error codes with original errors preserved in the cause chain.
@@ -64,19 +65,19 @@ src/common/
 
 ### ErrorException
 
-| Method/Property | Purpose |
-|-----------------|---------|
-| `new ErrorException(definition, options?)` | Create from an error code definition directly |
-| `ErrorException.notFound(resource, id?)` | Static helper — DAT.NOT_FOUND with formatted message |
-| `ErrorException.validation(zodError)` | Static helper — converts Zod issues to field details |
-| `ErrorException.validationFromCV(cvErrors)` | Static helper — converts class-validator errors |
-| `ErrorException.internal(cause?)` | Static helper — SRV.INTERNAL_ERROR with cause |
-| `ErrorException.wrap(unknown)` | Wrap any unknown error; returns ErrorException as-is or wraps as SRV0001 |
-| `ErrorException.isErrorException(val)` | Type guard |
-| `error.toResponse(includeChain?)` | Returns response object; masks non-userFacing messages |
-| `error.toLog()` | Returns plain object with full context for logging |
-| `error.definition` | Full ErrorCodeDefinition — single source of truth |
-| `error.cause` | Original error preserved in cause chain |
+| Method/Property                             | Purpose                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `new ErrorException(definition, options?)`  | Create from an error code definition directly                            |
+| `ErrorException.notFound(resource, id?)`    | Static helper — DAT.NOT_FOUND with formatted message                     |
+| `ErrorException.validation(zodError)`       | Static helper — converts Zod issues to field details                     |
+| `ErrorException.validationFromCV(cvErrors)` | Static helper — converts class-validator errors                          |
+| `ErrorException.internal(cause?)`           | Static helper — SRV.INTERNAL_ERROR with cause                            |
+| `ErrorException.wrap(unknown)`              | Wrap any unknown error; returns ErrorException as-is or wraps as SRV0001 |
+| `ErrorException.isErrorException(val)`      | Type guard                                                               |
+| `error.toResponse(includeChain?)`           | Returns response object; masks non-userFacing messages                   |
+| `error.toLog()`                             | Returns plain object with full context for logging                       |
+| `error.definition`                          | Full ErrorCodeDefinition — single source of truth                        |
+| `error.cause`                               | Original error preserved in cause chain                                  |
 
 ### Domain Constants
 
@@ -84,24 +85,31 @@ src/common/
 import { AUT, DAT, VAL, GEN, AUZ, SRV } from '@errors/error-codes';
 ```
 
-| Constant | Error Code | Status | Common Usage |
-|----------|-----------|--------|--------------|
-| `DAT.NOT_FOUND` | `DAT0001` | 404 | Resource not found |
-| `DAT.CONFLICT` | `DAT0002` | 409 | Resource conflict |
-| `DAT.UNIQUE_VIOLATION` | `DAT0003` | 409 | Unique constraint |
-| `DAT.DEPARTMENT_NOT_FOUND` | `DAT0009` | 404 | Parent department not in the caller's company |
-| `DAT.COMPANY_NOT_FOUND` | `DAT0010` | 404 | Company lookup failed (defensive) |
-| `VAL.INVALID_INPUT` | `VAL0001` | 400 | Validation failure |
-| `VAL.INVALID_STATUS_TRANSITION` | `VAL0004` | 400 | Status transition (general-purpose) |
-| `VAL.DEPARTMENT_IDS_REQUIRED` | `VAL0007` | 400 | DEPARTMENTS* visibility without departmentIds |
-| `VAL.DEPARTMENT_NOT_IN_COMPANY` | `VAL0008` | 400 | Referenced departmentIds include cross-tenant ids |
-| `AUT.UNAUTHENTICATED` | `AUT0001` | 401 | Missing / unknown `x-user-id` header |
-| `AUZ.FORBIDDEN` | `AUZ0001` | 403 | Access denied |
-| `AUZ.INSUFFICIENT_PERMISSIONS` | `AUZ0002` | 403 | Missing permissions |
-| `AUZ.CROSS_TENANT_ACCESS` | `AUZ0004` | 403 | Write carried a companyId that disagrees with CLS (extension backstop) |
-| `GEN.REQUEST_TIMEOUT` | `GEN0002` | 408 | Timeout |
-| `GEN.RATE_LIMITED` | `GEN0001` | 429 | Rate limit |
-| `SRV.INTERNAL_ERROR` | `SRV0001` | 500 | Unexpected error |
+**Active codes (order-management domain):**
+
+| Constant                        | Error Code | Status | Common Usage                                       |
+| ------------------------------- | ---------- | ------ | -------------------------------------------------- |
+| `DAT.NOT_FOUND`                 | `DAT0001`  | 404    | Resource not found (orders, archive entries, etc.) |
+| `DAT.CONFLICT`                  | `DAT0002`  | 409    | Resource conflict                                  |
+| `DAT.UNIQUE_VIOLATION`          | `DAT0003`  | 409    | Unique constraint                                  |
+| `DAT.COMPANY_NOT_FOUND`         | `DAT0010`  | 404    | Company lookup failed (defensive)                  |
+| `VAL.INVALID_INPUT`             | `VAL0001`  | 400    | Zod/request validation failure                     |
+| `VAL.INVALID_STATUS_TRANSITION` | `VAL0004`  | 400    | Status transition (general-purpose)                |
+| `AUT.UNAUTHENTICATED`           | `AUT0001`  | 401    | Missing / non-integer `x-user-id` header           |
+| `AUZ.FORBIDDEN`                 | `AUZ0001`  | 403    | Access denied                                      |
+| `AUZ.INSUFFICIENT_PERMISSIONS`  | `AUZ0002`  | 403    | Missing permissions                                |
+| `GEN.REQUEST_TIMEOUT`           | `GEN0002`  | 408    | Timeout                                            |
+| `GEN.RATE_LIMITED`              | `GEN0001`  | 429    | Rate limit                                         |
+| `SRV.INTERNAL_ERROR`            | `SRV0001`  | 500    | Unexpected error                                   |
+
+**Codes in registry but unused in this domain (enterprise-twitter era):**
+
+| Constant                        | Error Code | Notes                                           |
+| ------------------------------- | ---------- | ----------------------------------------------- |
+| `DAT.DEPARTMENT_NOT_FOUND`      | `DAT0009`  | Legacy — enterprise-twitter multi-tenancy       |
+| `VAL.DEPARTMENT_IDS_REQUIRED`   | `VAL0007`  | Legacy — tweet visibility scoping               |
+| `VAL.DEPARTMENT_NOT_IN_COMPANY` | `VAL0008`  | Legacy — tweet department validation            |
+| `AUZ.CROSS_TENANT_ACCESS`       | `AUZ0004`  | Legacy — Prisma tenant-scope extension backstop |
 
 > The JWT-era codes `AUT.INVALID_CREDENTIALS`, `AUT.TOKEN_EXPIRED`,
 > `AUT.TOKEN_INVALID`, `AUT.ACCOUNT_SUSPENDED`, `AUT.ACCOUNT_LOCKED` still
@@ -121,18 +129,18 @@ import { AUT, DAT, VAL, GEN, AUZ, SRV } from '@errors/error-codes';
 
 ### Prisma Error Mapping
 
-| Prisma Code | Mapped To | Cause Preserved |
-|-------------|-----------|-----------------|
-| `P2002` (unique) | `DAT0003` | Yes |
-| `P2025` (record not found) | `DAT0001` | Yes |
-| `P2003` (foreign key) | `DAT0004` | Yes |
-| `P2011` (null constraint) | `VAL0002` | Yes |
-| `P2000` (value too long) | `VAL0003` | Yes |
-| Other known | `DAT0007` | Yes |
-| Validation error | `VAL0001` | Yes |
-| Init error | `DAT0006` | Yes |
-| Rust panic | `SRV0001` | Yes |
-| Unknown request | `DAT0007` | Yes |
+| Prisma Code                | Mapped To | Cause Preserved |
+| -------------------------- | --------- | --------------- |
+| `P2002` (unique)           | `DAT0003` | Yes             |
+| `P2025` (record not found) | `DAT0001` | Yes             |
+| `P2003` (foreign key)      | `DAT0004` | Yes             |
+| `P2011` (null constraint)  | `VAL0002` | Yes             |
+| `P2000` (value too long)   | `VAL0003` | Yes             |
+| Other known                | `DAT0007` | Yes             |
+| Validation error           | `VAL0001` | Yes             |
+| Init error                 | `DAT0006` | Yes             |
+| Rust panic                 | `SRV0001` | Yes             |
+| Unknown request            | `DAT0007` | Yes             |
 
 ---
 
@@ -140,6 +148,7 @@ import { AUT, DAT, VAL, GEN, AUZ, SRV } from '@errors/error-codes';
 
 No environment variables control error handling behaviour directly.
 Error verbosity is controlled by:
+
 - `LOG_LEVEL` — determines whether debug/trace logs are emitted for caught errors.
 - `NODE_ENV=production` — cause chain is excluded from API responses in production.
 

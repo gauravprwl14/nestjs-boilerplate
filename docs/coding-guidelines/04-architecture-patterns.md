@@ -7,99 +7,103 @@ HTTP Request
     ↓
 Controller   — receives validated DTOs, calls service, returns response shape
     ↓
-Service      — business logic, ownership checks, status transitions, queue dispatch
+Service      — business logic, ownership checks, pool routing, SQL queries
     ↓
-*DbService   — DB-layer public API; one per aggregate; injected by feature services
+MultiDbService / ArchiveRegistryService  — pool manager (global, injected directly)
     ↓
-*DbRepository — Prisma calls; extends BaseRepository; no business logic
-    ↓
-Prisma       — database query execution
+pg.Pool      — raw SQL query execution (no ORM at runtime)
 ```
 
-Each layer has a single responsibility. **Do not skip layers.** Feature services must inject `*DbService` classes from the database layer — they must **not** inject `PrismaService` or `*DbRepository` directly.
+Each layer has a single responsibility. **Do not skip layers.** Feature services must inject `MultiDbService` (and optionally `ArchiveRegistryService`) from the database layer — they must **not** inject `PrismaService` for runtime queries.
+
+> Note: `BaseRepository`, `DatabaseService`, per-entity `*DbRepository` / `*DbService` classes, and
+> the Prisma `tenantScopeExtension` were removed in the feat/observability pivot. Prisma is
+> retained for schema migrations only.
 
 ## Controller Rules
 
 - Handle HTTP concerns only: parse params, call service, return data.
-- Do **not** call Prisma directly from a controller.
+- Do **not** run `pg.Pool` queries directly in a controller.
 - Do **not** catch errors in controllers — let filters handle them.
-- Declare mock auth via `@ApiSecurity('x-user-id')` so Swagger prompts for the header. Identity flows through CLS, not through controller arguments.
-- Always use `ParseUUIDPipe` on UUID path params.
+- Declare mock auth via `@ApiSecurity('x-user-id')` so Swagger prompts for the header. Identity (`userId`) flows through CLS, not through controller arguments.
+- Use `ParseIntPipe` on integer path params; `ParseUUIDPipe` on UUID params.
 
 ```typescript
-@ApiTags('Tweets')
+@ApiTags('orders')
 @ApiSecurity('x-user-id')
-@Controller({ version: '1' })
-export class TweetsController {
-  constructor(private readonly service: TweetsService) {}
+@Controller({ path: 'orders', version: '1' })
+export class OrdersController {
+  constructor(private readonly service: OrdersService) {}
 
-  @Post('tweets')
-  @HttpCode(HttpStatus.CREATED)
-  @UsePipes(new ZodValidationPipe(CreateTweetSchema))
-  @ApiOperation({ summary: 'Create a tweet (scoped to the caller\'s company).' })
-  async create(@Body() dto: CreateTweetDto): Promise<Tweet> {
-    return this.service.create(dto); // userId + companyId come from CLS, not the request
+  @Get(':orderId')
+  @ApiEndpoint({ summary: 'Get a single order by ID (routes to correct storage tier)' })
+  async getOrder(@Param('orderId') orderId: string) {
+    return this.service.getOrderById(BigInt(orderId)); // userId comes from CLS
   }
 }
 ```
 
 ## Service Rules
 
-- Contain all business logic: ownership checks, status transition validation, side effects.
+- Contain all business logic: tier routing, ownership checks, SQL queries.
 - Throw `ErrorException` with domain constants (`DAT`, `VAL`, `AUT`, etc.) — never throw raw `Error`.
 - Use `@Trace()` on public methods that benefit from distributed tracing.
-- Do **not** call Prisma directly — inject the appropriate `*DbService` from the database layer.
-- For cross-aggregate atomic operations inject `DatabaseService` and use `runInTransaction()`.
+- Obtain pools from `MultiDbService` and execute raw SQL via `pool.query(...)`.
+- For multi-statement transactions, use `pool.connect()` → `BEGIN` → `COMMIT` / `ROLLBACK` with `finally` release.
 
 ```typescript
 @Injectable()
-export class TweetsService {
+export class OrdersService {
   constructor(
-    private readonly tweetsDb: TweetsDbService,
-    private readonly departmentsDb: DepartmentsDbService,
+    private readonly db: MultiDbService,
+    private readonly registry: ArchiveRegistryService,
     private readonly cls: ClsService,
   ) {}
 
   /**
-   * Creates a tweet for the authenticated author (CLS).
-   * @throws {ErrorException} VAL0007 / VAL0008 on invalid department input
+   * Fetches an order by routing to the correct tier via user_order_index.
+   * @throws {ErrorException} DAT.NOT_FOUND when the order doesn't exist
    */
-  @Trace('tweets.create')
-  async create(dto: CreateTweetDto): Promise<Tweet> {
-    const userId = this.cls.get<string>(ClsKey.USER_ID);
-    const companyId = this.cls.get<string>(ClsKey.COMPANY_ID);
-    // ... pre-validate departmentIds, then delegate to tweetsDb.createWithTargets
+  @Trace('orders.getOrderById')
+  async getOrderById(orderId: bigint): Promise<OrderWithItems> {
+    const userId = this.cls.get<number>(ClsKey.USER_ID);
+    // 1. Query user_order_index on read pool → get tier
+    // 2. Route to correct pool based on tier
   }
 }
 ```
 
-## DbRepository Rules
+## DbRepository Rules (Order-Management Domain)
 
-- Extend `BaseRepository<TModel, …>` and implement `delegateFor(client)` to return the Prisma delegate.
-- Wrap Prisma calls in descriptive named methods; never expose raw Prisma client to services.
-- Apply soft-delete filter (`deletedAt: null`) in every query on soft-deletable models.
-- All methods accept an optional `tx?: DbTransactionClient` as their last parameter.
+In this domain, `*DbRepository` classes are thin wrappers around `MultiDbService`
+pools. They do not extend `BaseRepository` (that class was removed). Their
+responsibilities are:
+
+- Encapsulate raw SQL for one aggregate (e.g. `OrdersDbRepository` owns all
+  `orders_recent` and `user_order_index` queries).
+- Accept typed inputs; return typed rows using interfaces from
+  `src/database/interfaces/index.ts`.
+- Pass parameterised values to `pool.query()` — never string-interpolate user input.
+- Not contain business logic (tier-routing decisions belong in the service).
 
 ```typescript
 @Injectable()
-export class DepartmentsDbRepository extends BaseRepository<Department, …> {
-  // Tenant-scoped repositories route through prisma.tenantScoped when the
-  // caller passed the plain root client.
-  protected delegateFor(client: PrismaService | DbTransactionClient) {
-    if (client === this.prisma) {
-      return (this.prisma.tenantScoped as unknown as { department: Prisma.DepartmentDelegate }).department;
-    }
-    return (client as DbTransactionClient).department;
-  }
+export class OrdersDbRepository {
+  constructor(
+    private readonly db: MultiDbService,
+    private readonly registry: ArchiveRegistryService,
+  ) {}
 
   /**
-   * Returns departments in the caller's tenant (extension adds `where.companyId` too).
+   * Fetch hot (tier-2) orders from orders_recent by IDs.
    */
-  async findManyByCompany(companyId: string, tx?: DbTransactionClient): Promise<Department[]> {
-    return this.delegateFor(this.client(tx)).findMany({
-      where: { companyId },
-      orderBy: { name: 'asc' },
-    });
+  async findHotOrders(orderIds: bigint[]): Promise<OrderWithItems[]> {
+    const pool = this.db.getReadPool(); // replica round-robin
+    const { rows } = await pool.query<OrderRow>(
+      `SELECT * FROM orders_recent WHERE order_id = ANY($1)`,
+      [orderIds],
+    );
+    return rows.map(o => ({ ...o, tier: 2 as const, tierName: 'hot' as const }));
   }
 }
 ```
@@ -110,13 +114,14 @@ Always use `ErrorException` with domain constants for errors. Import definitions
 
 ```typescript
 // Good
-const parent = await this.departmentsDb.findByIdInCompany(parentId, companyId);
-if (!parent) throw new ErrorException(DAT.DEPARTMENT_NOT_FOUND, {
-  message: `Parent department ${parentId} not found in this company.`,
-});
+const index = await this.ordersDb.findIndexEntry(orderId, userId);
+if (!index)
+  throw new ErrorException(DAT.NOT_FOUND, {
+    message: `Order ${orderId} not found in any tier.`,
+  });
 
-// Also good — direct definition usage
-throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY);
+// Also good — static helper
+throw ErrorException.notFound('Order', orderId.toString());
 
 // Bad — no context, no structured code
 throw new Error('not found');

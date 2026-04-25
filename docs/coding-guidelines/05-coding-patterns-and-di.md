@@ -7,19 +7,19 @@ Always use constructor injection. Do **not** use property injection (`@Inject()`
 ```typescript
 // Good
 @Injectable()
-export class TweetsService {
+export class OrdersService {
   constructor(
-    private readonly tweetsDb: TweetsDbService, // inject the DbService, not PrismaService
-    private readonly departmentsDb: DepartmentsDbService,
+    private readonly db: MultiDbService, // pool manager
+    private readonly registry: ArchiveRegistryService, // year+tier routing
     private readonly cls: ClsService,
   ) {}
 }
 
 // Bad — property injection is harder to test
 @Injectable()
-export class TweetsService {
-  @Inject(PrismaService)
-  private prisma: PrismaService;
+export class OrdersService {
+  @Inject(MultiDbService)
+  private db: MultiDbService;
 }
 ```
 
@@ -52,15 +52,18 @@ export const ApiEndpoint = (opts: ApiEndpointOpts) =>
   applyDecorators(
     HttpCode(opts.successStatus ?? HttpStatus.OK),
     ApiOperation({ summary: opts.summary, description: opts.description }),
-    ApiResponse({ status: opts.successStatus ?? HttpStatus.OK, description: opts.successDescription }),
-    ...opts.errorResponses?.map((s) => ApiResponse({ status: s })) ?? [],
+    ApiResponse({
+      status: opts.successStatus ?? HttpStatus.OK,
+      description: opts.successDescription,
+    }),
+    ...(opts.errorResponses?.map(s => ApiResponse({ status: s })) ?? []),
   );
 ```
 
 ## Guards
 
 The only global guard is `AuthContextGuard` (registered as `APP_GUARD` in
-`AppModule`). It verifies that `companyId` is present in CLS.
+`AppModule`). It verifies that `userId` is present in CLS.
 
 ```typescript
 // Global scope — already wired in AppModule
@@ -88,14 +91,17 @@ Always use `ZodValidationPipe` for DTO validation. Apply it per-route via
 (class-validator) is also registered in `main.ts` for any non-Zod DTOs.
 
 ```typescript
-@Post('tweets')
-@UsePipes(new ZodValidationPipe(CreateTweetSchema))
-async create(@Body() dto: CreateTweetDto) { ... }
+@Post('orders')
+@UsePipes(new ZodValidationPipe(createOrderSchema))
+async create(@Body() dto: CreateOrderDto) { ... }
 ```
 
-For UUID path params use `ParseUUIDPipe`:
+For integer path params use `ParseIntPipe`; for UUID params use `ParseUUIDPipe`:
 
 ```typescript
+@Get('user/:userId')
+async getUserOrders(@Param('userId', ParseIntPipe) userId: number) { ... }
+
 @Get(':id')
 async findOne(@Param('id', ParseUUIDPipe) id: string) { ... }
 ```
@@ -120,19 +126,23 @@ Always use `async/await`. Never use raw `.then()/.catch()` chains in service or 
 
 ```typescript
 // Good
-async create(dto: CreateTweetDto): Promise<Tweet> {
-  const companyId = this.cls.get<string>(ClsKey.COMPANY_ID);
-  const existing = await this.departmentsDb.findExistingIdsInCompany(ids, companyId);
-  if (existing.length !== ids.length) throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY);
-  return this.tweetsDb.createWithTargets({ ... });
+async getOrderById(orderId: bigint): Promise<OrderWithItems> {
+  const userId = this.cls.get<number>(ClsKey.USER_ID);
+  const pool = this.db.getReadPool();
+  const { rows } = await pool.query<UserOrderIndexEntry>(
+    'SELECT tier FROM user_order_index WHERE order_id = $1 AND user_id = $2',
+    [orderId, userId],
+  );
+  if (!rows.length) throw ErrorException.notFound('Order', orderId.toString());
+  // route to correct tier pool ...
 }
 
 // Bad
-create(dto: CreateTweetDto): Promise<Tweet> {
-  return this.departmentsDb.findExistingIdsInCompany(ids, companyId)
-    .then(existing => {
-      if (existing.length !== ids.length) throw new Error('bad');
-      return this.tweetsDb.createWithTargets({ ... });
+getOrderById(orderId: bigint): Promise<OrderWithItems> {
+  return this.db.getReadPool().query('SELECT ...', [orderId])
+    .then(res => {
+      if (!res.rows.length) throw new Error('not found');
+      // ...
     });
 }
 ```
@@ -145,17 +155,21 @@ Define all string constants in a `*.constants.ts` file:
 // src/common/constants/app.constants.ts
 export const USER_ID_HEADER = 'x-user-id';
 export const IS_PUBLIC_KEY = 'isPublic';
-export const DEFAULT_TIMELINE_LIMIT = 100;
-export const MAX_TWEET_CONTENT_LENGTH = 280;
+export const DEFAULT_PAGE_LIMIT = 20;
+export const MAX_PAGE_LIMIT = 100;
 
 // src/common/cls/cls.constants.ts
 export enum ClsKey {
-  USER_ID = 'userId',
-  COMPANY_ID = 'companyId',
-  USER_DEPARTMENT_IDS = 'userDepartmentIds',
-  BYPASS_TENANT_SCOPE = 'bypassTenantScope',
+  REQUEST_ID = 'requestId',
+  USER_ID = 'userId', // positive integer from x-user-id header
+  TRACE_ID = 'traceId',
+  SPAN_ID = 'spanId',
   // ...
 }
 ```
 
 Never inline header names, CLS keys, or limits as string literals in service/controller code.
+
+> Note: `ClsKey.COMPANY_ID`, `ClsKey.USER_DEPARTMENT_IDS`, and
+> `ClsKey.BYPASS_TENANT_SCOPE` were removed in the feat/observability pivot.
+> The order-management domain uses `userId` as the sole auth identity key.

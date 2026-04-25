@@ -64,14 +64,14 @@ reference.
 
 ## Data Flow — Happy Path Request (Order Lookup)
 
-1. Client sends `GET /api/v1/orders/:id` with `x-user-id: <uuid>`.
+1. Client sends `GET /api/v1/orders/:id` with `x-user-id: <positive-integer>`.
 2. `RequestIdMiddleware` injects `x-request-id`.
 3. `SecurityHeadersMiddleware` (Helmet) sets headers.
-4. `MockAuthMiddleware` resolves the user and publishes `{ userId }` into CLS.
-   On missing/unknown header → `401 AUT0001`.
+4. `MockAuthMiddleware` validates `x-user-id` is a positive integer and publishes `{ userId }` into CLS.
+   On missing or non-integer header → `401 AUT0001`.
 5. `AuthContextGuard` (`APP_GUARD`) confirms context is present in CLS.
    `@Public()` routes bypass this check.
-6. Controller delegates to `OrdersService` (stub — full impl in `feat/om-orders`).
+6. Controller delegates to `OrdersService`.
 7. Service queries `user_order_index` on the primary pool to determine `tier`.
 8. Based on tier, service fetches the order from the appropriate pool:
    - tier 2 → `MultiDbService.getReadPool()`

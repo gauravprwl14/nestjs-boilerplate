@@ -9,6 +9,7 @@ Never throw a raw `new Error()` or use string-based error keys.
 ## ErrorException
 
 `ErrorException` extends `Error` (NOT `HttpException`) and carries:
+
 - `definition` — the full `ErrorCodeDefinition` (single source of truth)
 - `code` — domain-prefixed error code (e.g., `DAT0001`)
 - `statusCode` — HTTP status (from definition)
@@ -25,16 +26,16 @@ import { AUT, DAT, VAL, GEN, SRV } from '@errors/error-codes';
 import { ErrorException } from '@errors/types/error-exception';
 
 // Direct usage — most cases
-throw new ErrorException(DAT.DEPARTMENT_NOT_FOUND, { message: `Parent department ${id} not found in this company.` });
-throw new ErrorException(VAL.DEPARTMENT_NOT_IN_COMPANY);
+throw new ErrorException(DAT.NOT_FOUND, { message: `Order ${orderId} not found.` });
+throw new ErrorException(DAT.ARCHIVE_NOT_FOUND, { message: `No active archive for year ${year}.` });
 throw new ErrorException(AUT.UNAUTHENTICATED);
-throw new ErrorException(AUZ.CROSS_TENANT_ACCESS);
+throw new ErrorException(VAL.VALIDATION_FAILED);
 
 // Static helpers for common parameterized patterns
 throw ErrorException.notFound('Company', id);
-throw ErrorException.validation(zodError);       // converts Zod issues to field details
-throw ErrorException.validationFromCV(cvErrors);  // converts class-validator errors
-throw ErrorException.internal(cause);             // wraps unexpected errors (SRV.INTERNAL_ERROR)
+throw ErrorException.validation(zodError); // converts Zod issues to field details
+throw ErrorException.validationFromCV(cvErrors); // converts class-validator errors
+throw ErrorException.internal(cause); // wraps unexpected errors (SRV.INTERNAL_ERROR)
 
 // Unique constraint with field details
 throw new ErrorException(DAT.UNIQUE_VIOLATION, {
@@ -51,6 +52,7 @@ throw new ErrorException(DAT.UNIQUE_VIOLATION, {
 ## Error Code Registry
 
 All error codes live in `src/errors/error-codes/` — one file per domain:
+
 - `general.errors.ts` — exports `GEN`
 - `validation.errors.ts` — exports `VAL`
 - `auth.errors.ts` — exports `AUT`
@@ -59,6 +61,7 @@ All error codes live in `src/errors/error-codes/` — one file per domain:
 - `server.errors.ts` — exports `SRV`
 
 Adding a new error code:
+
 1. Choose the correct prefix file.
 2. Pick the next available 4-digit number in that prefix range.
 3. Add the entry with all required `ErrorCodeDefinition` fields.
@@ -85,6 +88,7 @@ try {
 ## Cause Chain
 
 `ErrorException` supports a `cause` property. The filter recursively extracts the cause chain:
+
 - In non-production: full chain included in response (code + message per level)
 - In production: cause chain omitted from response
 - `toLog()` always includes the full chain (up to depth 10)
@@ -103,14 +107,16 @@ All error responses follow:
 ```json
 {
   "success": false,
-  "errors": [{
-    "code": "VAL0001",
-    "message": "Validation failed",
-    "errorType": "VALIDATION",
-    "errorCategory": "CLIENT",
-    "retryable": false,
-    "details": [{ "field": "email", "message": "Must be a valid email" }]
-  }],
+  "errors": [
+    {
+      "code": "VAL0001",
+      "message": "Validation failed",
+      "errorType": "VALIDATION",
+      "errorCategory": "CLIENT",
+      "retryable": false,
+      "details": [{ "field": "email", "message": "Must be a valid email" }]
+    }
+  ],
   "requestId": "uuid",
   "traceId": "hex-string",
   "timestamp": "2026-04-15T12:00:00.000Z"

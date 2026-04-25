@@ -1,6 +1,6 @@
 # Mock Authentication & Tenant Context Flow
 
-<!-- DOC-SYNC: Diagram updated on 2026-04-25 for the Order Management pivot (feat/observability). UsersDbService removed; MockAuthMiddleware now resolves userId from the header without a DB lookup (or via primary pool directly — TBD in feat/om-orders). CLS now carries userId only (no companyId / userDepartmentIds in the order-management domain). Please verify visual accuracy before committing. -->
+<!-- DOC-SYNC: Diagram updated on 2026-04-25 for the Order Management pivot. UsersDbService removed; MockAuthMiddleware resolves userId from the header via parseInt() — no DB lookup. CLS now carries userId only (positive integer). AuthContextGuard checks ClsKey.USER_ID. Please verify visual accuracy before committing. -->
 
 ## Overview
 
@@ -26,6 +26,8 @@ userDepartmentIds }`. `UsersDbService` was removed in the
 
 ## Request Lifecycle
 
+<!-- DOC-SYNC: Diagram updated on 2026-04-25. MockAuthMiddleware no longer calls UsersDbService — it validates and parses x-user-id directly. AuthContextGuard now checks ClsKey.USER_ID (not COMPANY_ID). Please verify visual accuracy before committing. -->
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -33,7 +35,6 @@ sequenceDiagram
     participant ReqId as RequestIdMiddleware
     participant Sec as SecurityHeadersMiddleware
     participant Auth as MockAuthMiddleware
-    participant UDb as UsersDbService
     participant CLS as CLS store
     participant Guard as AuthContextGuard
     participant H as Controller Handler
@@ -46,22 +47,19 @@ sequenceDiagram
     alt path does not start with /api
         Auth->>H: next()  (anonymous, Swagger / probes)
     else path starts with /api
-        alt x-user-id missing/empty
+        alt x-user-id missing
             Auth-->>C: 401 AUT.UNAUTHENTICATED
-        else header present
-            Auth->>UDb: findAuthContext(userId)
-            alt user not found
-                Auth-->>C: 401 AUT.UNAUTHENTICATED
-            else user found
-                Auth->>CLS: set { userId, companyId, userDepartmentIds }
-                Auth->>Guard: next()
-                alt @Public() on handler
-                    Guard->>H: allow
-                else companyId missing in CLS
-                    Guard-->>C: 401 AUT.UNAUTHENTICATED
-                else companyId present
-                    Guard->>H: allow
-                end
+        else header present but not a positive integer
+            Auth-->>C: 401 AUT.UNAUTHENTICATED
+        else valid positive integer
+            Auth->>CLS: set { userId: parseInt(x-user-id) }
+            Auth->>Guard: next()
+            alt @Public() on handler
+                Guard->>H: allow
+            else userId missing in CLS
+                Guard-->>C: 401 AUT.UNAUTHENTICATED
+            else userId present
+                Guard->>H: allow
             end
         end
     end
@@ -71,11 +69,11 @@ sequenceDiagram
 
 ## Who reads CLS
 
-| Reader                      | Purpose                                                                                  |
-| --------------------------- | ---------------------------------------------------------------------------------------- |
-| `OrdersService` (planned)   | Resolve `userId` before querying `user_order_index` and routing to the correct tier pool |
-| `ArchivalService` (planned) | Resolve `userId` for user-scoped archival operations                                     |
-| Feature services (general)  | Read `ClsKey.USER_ID` via `ClsService.get(ClsKey.USER_ID)`                               |
+| Reader                     | Purpose                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `OrdersService`            | Resolve `userId` before querying `user_order_index` and routing to the correct tier pool |
+| `ArchivalService`          | Resolve `userId` for user-scoped archival operations                                     |
+| Feature services (general) | Read `ClsKey.USER_ID` via `ClsService.get(ClsKey.USER_ID)`                               |
 
 > Note: `tenantScopeExtension` (Prisma `$extends`) was removed in
 > `feat/observability`. Tenant/user isolation is now enforced via explicit
